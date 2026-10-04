@@ -756,6 +756,7 @@ function finishedSong()
     end
 
     songPlaying = false
+    songisplaying = false -- cờ của auto.lua
     pausing = false
 
     releaseAllInputs()
@@ -778,6 +779,7 @@ function stopPlayingSongs()
     _G.STOPIT = true
 
     songPlaying = false
+    songisplaying = false -- cờ của auto.lua
     pausing = false
 
     releaseAllInputs()
