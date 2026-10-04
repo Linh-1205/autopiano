@@ -188,19 +188,12 @@ local startPos
 local function update(input)
     local delta = input.Position - dragStart
     gui.Position =
-        UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-        )
+        UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 end
 
 gui.InputBegan:Connect(
     function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
-
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startPos = gui.Position
@@ -218,9 +211,7 @@ gui.InputBegan:Connect(
 
 gui.InputChanged:Connect(
     function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement
-            or input.UserInputType == Enum.UserInputType.Touch then
-
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
             dragInput = input
         end
     end
@@ -237,222 +228,109 @@ UserInputService.InputChanged:Connect(
 function stopPlayingSongs()
 
     print("stopped.")
-
     _G.STOPIT = true
 
     songisplaying = false
 
     playSound("6493287948", 0.1)
-
-    NotificationLibrary:SendNotification(
-        "Success",
-        "Stopping...",
-        1
-    )
-
+    NotificationLibrary:SendNotification("Success", "Stopping...", 1)
     lilgui:Destroy()
 end
 
 function finishedSong()
-
-    if _G.STOPIT then
-        return
-    end
-
+    if _G.STOPIT then return end
     playSound("6493287948", 0.1)
-
-    NotificationLibrary:SendNotification(
-        "Success",
-        "Your song has finished.",
-        3
-    )
-
+    NotificationLibrary:SendNotification("Success", "Your song has finished.", 3)
     songisplaying = false
-
     lilgui:Destroy()
     lilgui = nil
 end
 
-local resumeEvent =
-    Instance.new("BindableEvent")
+local resumeEvent = Instance.new("BindableEvent")
 
 pausing = false
 
 local function pauseSong()
-
     pausing = not pausing
 
     if not pausing then
-
-        pausebutton.Image =
-            "http://www.roblox.com/asset/?id=86903979265676"
-
+        pausebutton.Image = "http://www.roblox.com/asset/?id=86903979265676"
         resumeEvent:Fire()
-
         pausing = false
-
-        playSound(
-            "6493287948",
-            0.1
-        )
-
-        NotificationLibrary:SendNotification(
-            "Success",
-            "You have resumed playing.",
-            1
-        )
-
+        playSound("6493287948", 0.1)
+        NotificationLibrary:SendNotification("Success", "You have resumed playing.", 1)
     else
-
         pausing = true
-
-        pausebutton.Image =
-            "http://www.roblox.com/asset/?id=130610056660845"
-
-        playSound(
-            "6493287948",
-            0.1
-        )
-
-        NotificationLibrary:SendNotification(
-            "Success",
-            "You have paused your playing.",
-            1
-        )
+        pausebutton.Image = "http://www.roblox.com/asset/?id=130610056660845"
+        playSound("6493287948", 0.1)
+        NotificationLibrary:SendNotification("Success", "You have paused your playing.", 1)
     end
 end
 
-pausebutton.MouseButton1Click:Connect(
-    pauseSong
-)
+pausebutton.MouseButton1Click:Connect(pauseSong)
 
-stopbutton.MouseButton1Click:Connect(
-    stopPlayingSongs
-)
+stopbutton.MouseButton1Click:Connect(stopPlayingSongs)
 
 function updatebpmtext()
-
-    bpmtext.Text =
-        "BPM: "
-        .. tostring(bpm)
-
+    bpmtext.Text = "BPM: " .. tostring(bpm)
 end
 
 updatebpmtext()
 
 upbpm.MouseButton1Click:Connect(
     function()
-
-        bpm =
-            bpm + 10
-
+        bpm = bpm + 10
         updatebpmtext()
-
     end
 )
 
 downbpm.MouseButton1Click:Connect(
     function()
-
-        bpm =
-            bpm - 10
-
+        bpm = bpm - 10
         updatebpmtext()
-
     end
 )
 
 if not errormargin then
-
     errormargin = 0
-
 else
-
 end
 
 local function updateErrorMargin()
-
-    errorbox.Text =
-        "error margin: "
-        .. tostring(errormargin)
-
+    errorbox.Text = "error margin: " .. tostring(errormargin)
 end
 
 updateErrorMargin()
 
-local function round(
-    num,
-    decimalPlaces
-)
-
-    local mult =
-        10 ^ decimalPlaces
-
-    return math.floor(
-        num * mult + 0.5
-    ) / mult
-
+local function round(num, decimalPlaces)
+    local mult = 10 ^ decimalPlaces
+    return math.floor(num * mult + 0.5) / mult
 end
 
 more.MouseButton1Click:Connect(
     function()
-
-        errormargin =
-            round(
-                errormargin + 0.005,
-                3
-            )
-
+        errormargin = round(errormargin + 0.005, 3)
         updateErrorMargin()
-
     end
 )
 
 less.MouseButton1Click:Connect(
     function()
-
         if errormargin <= 0 then
             return
         end
-
-        errormargin =
-            round(
-                errormargin - 0.005,
-                3
-            )
-
+        errormargin = round(errormargin - 0.005, 3)
         updateErrorMargin()
-
     end
 )
 
-VirtualInputManager =
-    game:GetService("VirtualInputManager")
+VirtualInputManager = game:GetService("VirtualInputManager")
 
--- ================================================================
 -- PRESSKEY FUNCTION
--- ================================================================
---
--- IMPORTANT SHIFT RULE:
---
--- lowercase:
--- d -> D KEY WITHOUT SHIFT
--- p -> P KEY WITHOUT SHIFT
---
--- uppercase:
--- D -> D KEY WITH SHIFT
--- P -> P KEY WITH SHIFT
---
--- symbols:
--- ! @ # $ % ^ & * ( ) -> SHIFT
---
--- THERE IS NO RANDOM SHIFT.
--- THERE IS NO RANDOM UNSHIFT.
--- SHIFT IS NEVER LEFT HELD.
--- ================================================================
+-- PRESSKEY FUNCTION
+-- PRESSKEY FUNCTION
 
 local shiftKeys = {
-
     "!",
     "@",
     "#",
@@ -463,7 +341,6 @@ local shiftKeys = {
     "*",
     "(",
     ")",
-
     "Q",
     "W",
     "E",
@@ -474,7 +351,6 @@ local shiftKeys = {
     "I",
     "O",
     "P",
-
     "A",
     "S",
     "D",
@@ -484,7 +360,6 @@ local shiftKeys = {
     "J",
     "K",
     "L",
-
     "Z",
     "X",
     "C",
@@ -495,125 +370,265 @@ local shiftKeys = {
 }
 
 local keyMappings = {
-
     ["1"] = Enum.KeyCode.One,
     ["!"] = Enum.KeyCode.One,
-
     ["2"] = Enum.KeyCode.Two,
     ["@"] = Enum.KeyCode.Two,
-
     ["3"] = Enum.KeyCode.Three,
     ["#"] = Enum.KeyCode.Three,
-
     ["4"] = Enum.KeyCode.Four,
     ["$"] = Enum.KeyCode.Four,
-
     ["5"] = Enum.KeyCode.Five,
     ["%"] = Enum.KeyCode.Five,
-
     ["6"] = Enum.KeyCode.Six,
     ["^"] = Enum.KeyCode.Six,
-
     ["7"] = Enum.KeyCode.Seven,
     ["&"] = Enum.KeyCode.Seven,
-
     ["8"] = Enum.KeyCode.Eight,
     ["*"] = Enum.KeyCode.Eight,
-
     ["9"] = Enum.KeyCode.Nine,
     ["("] = Enum.KeyCode.Nine,
-
     ["0"] = Enum.KeyCode.Zero,
     [")"] = Enum.KeyCode.Zero,
 
     ["q"] = Enum.KeyCode.Q,
     ["Q"] = Enum.KeyCode.Q,
-
     ["w"] = Enum.KeyCode.W,
     ["W"] = Enum.KeyCode.W,
-
     ["e"] = Enum.KeyCode.E,
     ["E"] = Enum.KeyCode.E,
-
     ["r"] = Enum.KeyCode.R,
     ["R"] = Enum.KeyCode.R,
-
     ["t"] = Enum.KeyCode.T,
     ["T"] = Enum.KeyCode.T,
-
     ["y"] = Enum.KeyCode.Y,
     ["Y"] = Enum.KeyCode.Y,
-
     ["u"] = Enum.KeyCode.U,
     ["U"] = Enum.KeyCode.U,
-
     ["i"] = Enum.KeyCode.I,
     ["I"] = Enum.KeyCode.I,
-
     ["o"] = Enum.KeyCode.O,
     ["O"] = Enum.KeyCode.O,
-
     ["p"] = Enum.KeyCode.P,
     ["P"] = Enum.KeyCode.P,
 
     ["a"] = Enum.KeyCode.A,
     ["A"] = Enum.KeyCode.A,
-
     ["s"] = Enum.KeyCode.S,
     ["S"] = Enum.KeyCode.S,
-
     ["d"] = Enum.KeyCode.D,
     ["D"] = Enum.KeyCode.D,
-
     ["f"] = Enum.KeyCode.F,
     ["F"] = Enum.KeyCode.F,
-
     ["g"] = Enum.KeyCode.G,
     ["G"] = Enum.KeyCode.G,
-
     ["h"] = Enum.KeyCode.H,
     ["H"] = Enum.KeyCode.H,
-
     ["j"] = Enum.KeyCode.J,
     ["J"] = Enum.KeyCode.J,
-
     ["k"] = Enum.KeyCode.K,
     ["K"] = Enum.KeyCode.K,
-
     ["l"] = Enum.KeyCode.L,
     ["L"] = Enum.KeyCode.L,
 
     ["z"] = Enum.KeyCode.Z,
     ["Z"] = Enum.KeyCode.Z,
-
     ["x"] = Enum.KeyCode.X,
     ["X"] = Enum.KeyCode.X,
-
     ["c"] = Enum.KeyCode.C,
     ["C"] = Enum.KeyCode.C,
-
     ["v"] = Enum.KeyCode.V,
     ["V"] = Enum.KeyCode.V,
-
     ["b"] = Enum.KeyCode.B,
     ["B"] = Enum.KeyCode.B,
-
     ["n"] = Enum.KeyCode.N,
     ["N"] = Enum.KeyCode.N,
-
     ["m"] = Enum.KeyCode.M,
     ["M"] = Enum.KeyCode.M
 }
 
-local function pressKey(
-    keys,
-    beats,
-    bpm
-)
+----------------------------------------------------------------
+-- KEY GENERATION SYSTEM
+--
+-- This fixes repeated notes such as:
+--
+--     D D P
+--     P P
+--     A A A
+--
+-- Every time the same physical key is pressed, its generation
+-- increases.
+--
+-- An old coroutine is therefore not allowed to release a newer
+-- press of the same key.
+----------------------------------------------------------------
+
+local keyGeneration = {}
+
+local function getKeyId(key)
+    return tostring(key)
+end
+
+local function createKeyGeneration(key)
+    local id = getKeyId(key)
+
+    keyGeneration[id] = (keyGeneration[id] or 0) + 1
+
+    return keyGeneration[id]
+end
+
+local function isCurrentKeyGeneration(key, generation)
+    local id = getKeyId(key)
+
+    return keyGeneration[id] == generation
+end
+
+----------------------------------------------------------------
+-- SAFE KEY UP
+----------------------------------------------------------------
+
+local function sendKeyUp(key)
+    local keyCode = keyMappings[key]
+
+    if not keyCode then
+        return
+    end
+
+    VirtualInputManager:SendKeyEvent(
+        false,
+        keyCode,
+        false,
+        game
+    )
+end
+
+----------------------------------------------------------------
+-- HOLD TIME
+----------------------------------------------------------------
+
+local function getKeyWaitTime(beats, bpm, shorts)
+
+    if shorts then
+        return math.random(4, 12) / 100
+    end
+
+    if type(beats) ~= "number" then
+        return 0.08
+    end
+
+    if not bpm or bpm <= 0 then
+        bpm = 120
+    end
+
+    local noteTime = (beats / bpm) * 60
+
+    local maxRandom = noteTime / 2
+    local randomOff = math.random() * maxRandom
+
+    return math.max(
+        0.01,
+        noteTime - randomOff
+    )
+end
+
+----------------------------------------------------------------
+-- PRESS ONE PHYSICAL KEY
+----------------------------------------------------------------
+
+local function pressSingleKey(key, beats, bpm, shorts)
 
     if _G.STOPIT then
         return
     end
+
+    local keyCode = keyMappings[key]
+
+    if not keyCode then
+        warn("Unknown key mapping: " .. tostring(key))
+        return
+    end
+
+    ------------------------------------------------------------
+    -- Every press gets a new generation.
+    ------------------------------------------------------------
+
+    local generation = createKeyGeneration(key)
+
+    ------------------------------------------------------------
+    -- IMPORTANT:
+    --
+    -- If this exact physical key is already held, release it
+    -- before sending the new key-down.
+    --
+    -- This gives:
+    --
+    --     D DOWN
+    --     D UP
+    --     D DOWN
+    --
+    -- instead of:
+    --
+    --     D DOWN
+    --     D DOWN
+    --
+    -- which many piano games do not treat as two notes.
+    ------------------------------------------------------------
+
+    sendKeyUp(key)
+
+    ------------------------------------------------------------
+    -- New key down.
+    ------------------------------------------------------------
+
+    VirtualInputManager:SendKeyEvent(
+        true,
+        keyCode,
+        false,
+        game
+    )
+
+    ------------------------------------------------------------
+    -- Calculate note hold duration.
+    ------------------------------------------------------------
+
+    local waittime =
+        getKeyWaitTime(
+            beats,
+            bpm,
+            shorts
+        )
+
+    task.wait(waittime)
+
+    if _G.STOPIT then
+        sendKeyUp(key)
+        return
+    end
+
+    ------------------------------------------------------------
+    -- ONLY the newest press can release this key.
+    ------------------------------------------------------------
+
+    if isCurrentKeyGeneration(key, generation) then
+        sendKeyUp(key)
+    end
+end
+
+----------------------------------------------------------------
+-- PRESSKEY FUNCTION
+----------------------------------------------------------------
+
+local function pressKey(keys, beats, bpm)
+
+    if _G.STOPIT then
+        return
+    end
+
+    if not keys then
+        return
+    end
+
+    keys = tostring(keys)
 
     local shorts
 
@@ -623,145 +638,139 @@ local function pressKey(
         shorts = true
     end
 
-    local shiftRequired, nonShift =
-        {},
-        {}
+    local shiftRequired = {}
+    local nonShift = {}
 
-    local ctrlRequired =
-        false
+    local ctrlRequired = false
+
+    ------------------------------------------------------------
+    -- Ctrl+X
+    ------------------------------------------------------------
 
     if keys:sub(1, 5) == "Ctrl+" then
-
         ctrlRequired = true
-
-        keys =
-            keys:sub(6)
-
+        keys = keys:sub(6)
     end
 
-    -- ============================================================
-    -- Separate Shift and no-Shift keys.
-    --
-    -- Lowercase letters always go into nonShift.
-    -- Uppercase letters and symbols go into shiftRequired.
-    -- ============================================================
+    ------------------------------------------------------------
+    -- Separate shifted and normal keys.
+    ------------------------------------------------------------
 
     for i = 1, #keys do
 
-        local key =
-            keys:sub(
-                i,
-                i
-            )
+        local key = keys:sub(i, i)
 
-        if table.find(
-            shiftKeys,
-            key
-        ) then
-
+        if table.find(shiftKeys, key) then
             table.insert(
                 shiftRequired,
                 key
             )
-
         else
-
             table.insert(
                 nonShift,
                 key
             )
-
         end
+
     end
 
-    -- ============================================================
-    -- PRESS NON-SHIFT KEYS
+    ------------------------------------------------------------
+    -- NON-SHIFT KEYS
     --
-    -- NO RANDOM SHIFT HERE.
-    --
-    -- d = D key
-    -- p = P key
-    -- l = L key
-    -- etc.
-    -- ============================================================
+    -- Different keys can still play simultaneously.
+    ------------------------------------------------------------
 
     for _, key in ipairs(nonShift) do
 
-        coroutine.wrap(
-            function()
+        task.spawn(function()
 
-                if ctrlRequired then
+            if _G.STOPIT then
+                return
+            end
 
-                    VirtualInputManager:SendKeyEvent(
-                        true,
-                        Enum.KeyCode.LeftControl,
-                        false,
-                        game
-                    )
+            ----------------------------------------------------
+            -- Error margin random shift.
+            ----------------------------------------------------
 
-                end
+            local shiftApplied = false
 
-                -- IMPORTANT:
-                -- lowercase key is pressed directly.
-                -- Shift is NOT pressed here.
+            local agf = errormargin * 100
+
+            if math.random(1, 500) <= agf then
 
                 VirtualInputManager:SendKeyEvent(
                     true,
-                    keyMappings[key],
+                    Enum.KeyCode.LeftShift,
                     false,
                     game
                 )
 
-                if ctrlRequired then
+                shiftApplied = true
 
-                    VirtualInputManager:SendKeyEvent(
-                        false,
-                        Enum.KeyCode.LeftControl,
-                        false,
-                        game
-                    )
+                print("shift applied")
+            end
 
-                end
+            ----------------------------------------------------
+            -- Ctrl.
+            ----------------------------------------------------
 
-                local waittime
-                local randomOff
-
-                if shorts == false then
-
-                    local maxRan =
-                        (beats / bpm) * 60 / 2
-
-                    randomOff =
-                        math.random() * maxRan
-
-                    waittime =
-                        (beats / bpm) * 60
-                        - randomOff
-
-                else
-
-                    waittime =
-                        math.random(4, 12) / 100
-
-                end
-
-                task.wait(
-                    waittime
-                )
+            if ctrlRequired then
 
                 VirtualInputManager:SendKeyEvent(
-                    false,
-                    keyMappings[key],
+                    true,
+                    Enum.KeyCode.LeftControl,
                     false,
                     game
                 )
 
             end
-        )()
 
-        -- Keep original error-margin timing.
-        -- This ONLY delays the next key.
-        -- It NEVER applies Shift.
+            ----------------------------------------------------
+            -- Press actual key.
+            ----------------------------------------------------
+
+            pressSingleKey(
+                key,
+                beats,
+                bpm,
+                shorts
+            )
+
+            ----------------------------------------------------
+            -- Ctrl release.
+            ----------------------------------------------------
+
+            if ctrlRequired then
+
+                VirtualInputManager:SendKeyEvent(
+                    false,
+                    Enum.KeyCode.LeftControl,
+                    false,
+                    game
+                )
+
+            end
+
+            ----------------------------------------------------
+            -- Random shift release.
+            ----------------------------------------------------
+
+            if shiftApplied then
+
+                VirtualInputManager:SendKeyEvent(
+                    false,
+                    Enum.KeyCode.LeftShift,
+                    false,
+                    game
+                )
+
+            end
+
+        end)
+
+        --------------------------------------------------------
+        -- Error margin delay between keys.
+        --------------------------------------------------------
 
         if errormargin ~= 0 then
 
@@ -776,76 +785,43 @@ local function pressKey(
             end
 
         end
+
     end
 
-    -- ============================================================
-    -- PRESS SHIFT-REQUIRED KEYS
-    --
-    -- These are ONLY:
-    --
-    -- ! @ # $ % ^ & * ( )
-    -- Q W E R T Y U I O P
-    -- A S D F G H J K L
-    -- Z X C V B N M
-    --
-    -- Shift is pressed ONLY for these keys.
-    -- Shift is released immediately after the key-down event.
-    -- It is NEVER random.
-    -- It is NEVER left held.
-    -- ============================================================
+    ------------------------------------------------------------
+    -- SHIFT-REQUIRED KEYS
+    ------------------------------------------------------------
 
     if #shiftRequired > 0 then
 
         for _, key in ipairs(shiftRequired) do
 
-            coroutine.wrap(
-                function()
+            task.spawn(function()
 
-                    if ctrlRequired then
+                if _G.STOPIT then
+                    return
+                end
 
-                        VirtualInputManager:SendKeyEvent(
-                            true,
-                            Enum.KeyCode.LeftControl,
-                            false,
-                            game
-                        )
+                ------------------------------------------------
+                -- Shift down.
+                ------------------------------------------------
 
-                    end
+                VirtualInputManager:SendKeyEvent(
+                    true,
+                    Enum.KeyCode.LeftShift,
+                    false,
+                    game
+                )
 
-                    -- Press Shift because THIS CHARACTER
-                    -- explicitly requires Shift.
+                ------------------------------------------------
+                -- Error-margin unshift.
+                ------------------------------------------------
 
-                    VirtualInputManager:SendKeyEvent(
-                        true,
-                        Enum.KeyCode.LeftShift,
-                        false,
-                        game
-                    )
+                local unshiftApplied = false
 
-                    -- Press actual key while Shift is down.
+                local agf = errormargin * 100
 
-                    VirtualInputManager:SendKeyEvent(
-                        true,
-                        keyMappings[key],
-                        false,
-                        game
-                    )
-
-                    -- IMPORTANT:
-                    -- Release the actual key normally.
-
-                    VirtualInputManager:SendKeyEvent(
-                        false,
-                        keyMappings[key],
-                        false,
-                        game
-                    )
-
-                    -- IMPORTANT:
-                    -- Release Shift immediately.
-                    --
-                    -- This means Shift can NEVER remain
-                    -- stuck after D/P/etc.
+                if math.random(1, 500) <= agf then
 
                     VirtualInputManager:SendKeyEvent(
                         false,
@@ -854,45 +830,68 @@ local function pressKey(
                         game
                     )
 
-                    if ctrlRequired then
+                    unshiftApplied = true
 
-                        VirtualInputManager:SendKeyEvent(
-                            false,
-                            Enum.KeyCode.LeftControl,
-                            false,
-                            game
-                        )
+                    print("unshift applied")
+                end
 
-                    end
+                ------------------------------------------------
+                -- Ctrl down.
+                ------------------------------------------------
 
-                    local waittime
-                    local randomOff
+                if ctrlRequired then
 
-                    if shorts == false then
-
-                        local maxRan =
-                            (beats / bpm) * 60 / 2
-
-                        randomOff =
-                            math.random() * maxRan
-
-                        waittime =
-                            (beats / bpm) * 60
-                            - randomOff
-
-                    else
-
-                        waittime =
-                            math.random(4, 12) / 100
-
-                    end
-
-                    task.wait(
-                        waittime
+                    VirtualInputManager:SendKeyEvent(
+                        true,
+                        Enum.KeyCode.LeftControl,
+                        false,
+                        game
                     )
 
                 end
-            )()
+
+                ------------------------------------------------
+                -- Press actual shifted key.
+                ------------------------------------------------
+
+                pressSingleKey(
+                    key,
+                    beats,
+                    bpm,
+                    shorts
+                )
+
+                ------------------------------------------------
+                -- Ctrl up.
+                ------------------------------------------------
+
+                if ctrlRequired then
+
+                    VirtualInputManager:SendKeyEvent(
+                        false,
+                        Enum.KeyCode.LeftControl,
+                        false,
+                        game
+                    )
+
+                end
+
+                ------------------------------------------------
+                -- Shift up.
+                ------------------------------------------------
+
+                if not unshiftApplied then
+
+                    VirtualInputManager:SendKeyEvent(
+                        false,
+                        Enum.KeyCode.LeftShift,
+                        false,
+                        game
+                    )
+
+                end
+
+            end)
 
             if errormargin ~= 0 then
 
@@ -907,8 +906,14 @@ local function pressKey(
                 end
 
             end
+
         end
+
     end
+
+    ------------------------------------------------------------
+    -- Ctrl cleanup.
+    ------------------------------------------------------------
 
     if ctrlRequired then
 
@@ -921,6 +926,10 @@ local function pressKey(
 
     end
 
+    ------------------------------------------------------------
+    -- Error margin final delay.
+    ------------------------------------------------------------
+
     if errormargin ~= 0 then
 
         task.wait(
@@ -931,31 +940,33 @@ local function pressKey(
     end
 end
 
+----------------------------------------------------------------
+-- VELOCITY
+----------------------------------------------------------------
+
 function adjustVelocity(vel)
 
     if _G.STOPIT then
         return
     end
 
-    local velocityMap =
-        "58qrupdhl"
+    local velocityMap = "58qrupdhl"
 
-    vel =
-        math.clamp(
-            vel,
-            0,
-            1
-        )
+    vel = math.clamp(
+        vel,
+        0,
+        1
+    )
+
+    local topress
 
     if vel < 0.27 then
 
-        topress =
-            "2"
+        topress = "2"
 
     elseif vel >= 0.88 then
 
-        topress =
-            "c"
+        topress = "c"
 
     else
 
@@ -990,13 +1001,22 @@ function adjustVelocity(vel)
 
     VirtualInputManager:SendKeyEvent(
         false,
+        keyMappings[topress],
+        false,
+        game
+    )
+
+    VirtualInputManager:SendKeyEvent(
+        false,
         Enum.KeyCode.LeftAlt,
         false,
         game
     )
 end
 
--- note mappings to vp keys
+----------------------------------------------------------------
+-- NOTE MAPPINGS
+----------------------------------------------------------------
 
 local noteMappings = {
 
@@ -1098,14 +1118,11 @@ local noteMappings = {
     }
 }
 
--- press function
+----------------------------------------------------------------
+-- PRESS NOTE
+----------------------------------------------------------------
 
-function pressnote(
-    note,
-    octave,
-    beats,
-    bpm
-)
+function pressnote(note, octave, beats, bpm)
 
     if _G.STOPIT then
         return
@@ -1121,19 +1138,15 @@ function pressnote(
 
     if key then
 
-        -- press it asynchronously
+        -- FIX:
+        -- No unnecessary coroutine here.
+        -- pressKey itself handles parallel key input.
 
-        coroutine.wrap(
-            function()
-
-                pressKey(
-                    key,
-                    beats,
-                    bpm
-                )
-
-            end
-        )()
+        pressKey(
+            key,
+            beats,
+            bpm
+        )
 
     else
 
@@ -1147,14 +1160,11 @@ function pressnote(
     end
 end
 
+----------------------------------------------------------------
 -- REST FUNCTION
--- REST FUNCTION
--- REST FUNCTION
+----------------------------------------------------------------
 
-function rest(
-    beats,
-    bpm
-)
+function rest(beats, bpm)
 
     if _G.STOPIT then
         return
@@ -1165,109 +1175,102 @@ function rest(
 
     if errormargin == 0 then
 
-        task.wait(
-            waitTime
-        )
+        task.wait(waitTime)
 
     else
 
         local randomOffset =
-            (
-                math.random() * 1.6 - 1
-            )
+            (math.random() * 1.6 - 1)
             * (errormargin / 2)
 
-        wait(
-            waitTime + randomOffset
+        task.wait(
+            math.max(
+                0,
+                waitTime + randomOffset
+            )
         )
 
     end
 end
 
+----------------------------------------------------------------
 -- KEYPRESS FUNCTION
--- KEYPRESS FUNCTION
--- KEYPRESS FUNCTION
+----------------------------------------------------------------
 
-function keypress(
-    keys,
-    beats,
-    bpm
-)
+function keypress(keys, beats, bpm)
 
     if _G.STOPIT then
         return
     end
 
     if pausing then
-
         resumeEvent.Event:Wait()
-
-    else
-
     end
 
-    coroutine.wrap(
-        function()
+    -- FIX:
+    -- Removed the extra coroutine.
+    --
+    -- Old:
+    --
+    -- coroutine.wrap(function()
+    --     pressKey(keys, beats, bpm)
+    -- end)()
+    --
+    -- New:
+    --
+    -- pressKey directly.
 
-            pressKey(
-                keys,
+    pressKey(
+        keys,
+        beats,
+        bpm
+    )
+end
+
+----------------------------------------------------------------
+-- KEYSEQUENCE16 FUNCTION
+----------------------------------------------------------------
+
+function keysequence16(keys, beats, bpm)
+
+    if _G.STOPIT then
+        return
+    end
+
+    if pausing then
+        resumeEvent.Event:Wait()
+    end
+
+    task.spawn(function()
+
+        for i = 1, #keys do
+
+            if _G.STOPIT then
+                break
+            end
+
+            local key =
+                keys:sub(i, i)
+
+            keypress(
+                key,
                 beats,
                 bpm
             )
 
-        end
-    )()
-end
-
--- KEYSEQUENCE16 FUNCTION
--- KEYSEQUENCE16 FUNCTION
--- KEYSEQUENCE16 FUNCTION
-
-function keysequence16(
-    keys,
-    beats,
-    bpm
-)
-
-    if _G.STOPIT then
-        return
-    end
-
-    if pausing then
-
-        resumeEvent.Event:Wait()
-
-    else
-
-    end
-
-    coroutine.wrap(
-        function()
-
-            for i = 1, #keys do
-
-                local key =
-                    keys:sub(
-                        i,
-                        i
-                    )
-
-                keypress(
-                    key,
-                    beats,
-                    bpm
-                )
-
-                rest(
-                    0.25,
-                    bpm
-                )
-
-            end
+            rest(
+                0.25,
+                bpm
+            )
 
         end
-    )()
+
+    end)
 end
+
+----------------------------------------------------------------
+-- PEDAL
+----------------------------------------------------------------
 
 function pedalDown()
 
@@ -1281,7 +1284,6 @@ function pedalDown()
         false,
         game
     )
-
 end
 
 function pedalUp()
@@ -1296,5 +1298,4 @@ function pedalUp()
         false,
         game
     )
-
 end
