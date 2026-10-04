@@ -1,7 +1,6 @@
 -- MIDI2LUA loader
 -- Original-style playback
 --
--- GUI RESTORED
 -- No timeline
 -- No seek
 -- No +/- time controls
@@ -32,15 +31,11 @@ local Players =
 local LocalPlayer =
     Players.LocalPlayer
 
-local PlayerGui =
-    LocalPlayer:WaitForChild("PlayerGui")
-
 -- ================================================================
 -- SOUND
 -- ================================================================
 
 local function playSound(soundId, loudness)
-
     local sound =
         Instance.new("Sound")
 
@@ -56,13 +51,10 @@ local function playSound(soundId, loudness)
     sound:Play()
 
     task.delay(3, function()
-
         if sound then
             sound:Destroy()
         end
-
     end)
-
 end
 
 -- ================================================================
@@ -91,11 +83,8 @@ NotificationLibrary:SendNotification(
 -- GLOBAL SETTINGS
 -- ================================================================
 
-local songPlaying =
-    false
-
-local pausing =
-    false
+local songPlaying = false
+local pausing = false
 
 local errormargin =
     tonumber(errormargin) or 0
@@ -224,6 +213,16 @@ local keyMappings = {
 
 -- ================================================================
 -- SHIFT MAP
+--
+-- IMPORTANT:
+--
+-- Lowercase:
+-- d -> D key WITHOUT Shift
+--
+-- Uppercase:
+-- D -> D key WITH Shift
+--
+-- There is NO random Shift.
 -- ================================================================
 
 local shiftRequired = {
@@ -271,14 +270,25 @@ local shiftRequired = {
 
 -- ================================================================
 -- KEY GENERATION
+--
+-- Prevents:
+--
+-- d #1:
+--     key down
+--
+-- d #2:
+--     key down
+--
+-- old d #1:
+--     key up
+--
+-- from cancelling the newer d #2.
 -- ================================================================
 
 local keyGeneration = {}
 
 local function getKeyId(key)
-
     return tostring(key)
-
 end
 
 local function createKeyGeneration(key)
@@ -290,19 +300,16 @@ local function createKeyGeneration(key)
         (keyGeneration[id] or 0) + 1
 
     return keyGeneration[id]
-
 end
 
 local function isCurrentGeneration(
     key,
     generation
 )
-
     return
         keyGeneration[
             getKeyId(key)
         ] == generation
-
 end
 
 -- ================================================================
@@ -369,7 +376,6 @@ local function releaseAllInputs()
         )
 
     end)
-
 end
 
 -- ================================================================
@@ -421,7 +427,6 @@ local function getHoldTime(
         0.01,
         noteTime - randomOff
     )
-
 end
 
 -- ================================================================
@@ -455,6 +460,8 @@ local function pressSingleKey(
     local generation =
         createKeyGeneration(key)
 
+    -- Make sure an old hold does not
+    -- remain active before retriggering.
     pcall(function()
 
         VirtualInputManager:SendKeyEvent(
@@ -469,7 +476,9 @@ local function pressSingleKey(
     local needsShift =
         shiftRequired[key] == true
 
+    -- ============================================================
     -- CTRL
+    -- ============================================================
 
     if ctrlRequired then
 
@@ -482,7 +491,13 @@ local function pressSingleKey(
 
     end
 
+    -- ============================================================
     -- SHIFT
+    --
+    -- ONLY uppercase/symbol mappings get Shift.
+    --
+    -- There is NO random Shift here.
+    -- ============================================================
 
     if needsShift then
 
@@ -495,7 +510,9 @@ local function pressSingleKey(
 
     end
 
+    -- ============================================================
     -- KEY DOWN
+    -- ============================================================
 
     VirtualInputManager:SendKeyEvent(
         true,
@@ -504,7 +521,11 @@ local function pressSingleKey(
         game
     )
 
-    -- RELEASE SHIFT
+    -- ============================================================
+    -- RELEASE MODIFIERS
+    --
+    -- We do NOT keep Shift held.
+    -- ============================================================
 
     if needsShift then
 
@@ -517,8 +538,6 @@ local function pressSingleKey(
 
     end
 
-    -- RELEASE CTRL
-
     if ctrlRequired then
 
         VirtualInputManager:SendKeyEvent(
@@ -530,7 +549,9 @@ local function pressSingleKey(
 
     end
 
+    -- ============================================================
     -- HOLD
+    -- ============================================================
 
     local waitTime =
         getHoldTime(
@@ -541,7 +562,9 @@ local function pressSingleKey(
 
     task.wait(waitTime)
 
+    -- ============================================================
     -- STOP SAFETY
+    -- ============================================================
 
     if _G.STOPIT then
 
@@ -559,7 +582,9 @@ local function pressSingleKey(
         return
     end
 
+    -- ============================================================
     -- ONLY NEWEST GENERATION MAY RELEASE
+    -- ============================================================
 
     if isCurrentGeneration(
         key,
@@ -574,7 +599,6 @@ local function pressSingleKey(
         )
 
     end
-
 end
 
 -- ================================================================
@@ -597,6 +621,10 @@ local function pressKey(
     local ctrlRequired =
         false
 
+    -- ============================================================
+    -- CTRL+
+    -- ============================================================
+
     if
         keys:sub(1, 5)
         == "Ctrl+"
@@ -609,6 +637,10 @@ local function pressKey(
             keys:sub(6)
 
     end
+
+    -- ============================================================
+    -- PRESS EACH KEY
+    -- ============================================================
 
     for i = 1, #keys do
 
@@ -629,6 +661,8 @@ local function pressKey(
 
         end)
 
+        -- Keep the original error-margin
+        -- timing behavior.
         if
             errormargin ~= 0
             and math.random() < 0.5
@@ -641,9 +675,7 @@ local function pressKey(
             )
 
         end
-
     end
-
 end
 
 -- ================================================================
@@ -735,7 +767,6 @@ function adjustVelocity(vel)
         false,
         game
     )
-
 end
 
 -- ================================================================
@@ -754,7 +785,6 @@ function pedalDown()
         false,
         game
     )
-
 end
 
 function pedalUp()
@@ -769,7 +799,6 @@ function pedalUp()
         false,
         game
     )
-
 end
 
 -- ================================================================
@@ -892,6 +921,8 @@ function pressnote(
     end
 
     if pausing then
+        -- Original loader behavior:
+        -- do not start while paused.
         return
     end
 
@@ -922,7 +953,6 @@ function pressnote(
         )
 
     end
-
 end
 
 -- ================================================================
@@ -955,6 +985,7 @@ function rest(
         / safeBpm
         * 60
 
+    -- Keep original error-margin behavior.
     if errormargin == 0 then
 
         task.wait(
@@ -980,7 +1011,6 @@ function rest(
         )
 
     end
-
 end
 
 -- ================================================================
@@ -1010,7 +1040,6 @@ function keypress(
         )
 
     end)
-
 end
 
 -- ================================================================
@@ -1059,7 +1088,6 @@ function keysequence16(
         end
 
     end)
-
 end
 
 -- ================================================================
@@ -1090,7 +1118,6 @@ function finishedSong()
         "Your song has finished.",
         3
     )
-
 end
 
 -- ================================================================
@@ -1115,7 +1142,6 @@ function stopPlayingSongs()
         "Stopping...",
         1
     )
-
 end
 
 -- ================================================================
@@ -1124,692 +1150,7 @@ end
 
 LocalPlayer.CharacterRemoving:Connect(
     function()
-
         releaseAllInputs()
-
-    end
-)
-
--- ================================================================
--- GUI
--- ================================================================
-
--- XÓA GUI CŨ NẾU CÓ
-pcall(function()
-
-    local oldGui =
-        PlayerGui:FindFirstChild(
-            "MIDI2LUA_GUI"
-        )
-
-    if oldGui then
-        oldGui:Destroy()
-    end
-
-end)
-
--- SCREEN GUI
-
-local gui =
-    Instance.new("ScreenGui")
-
-gui.Name =
-    "MIDI2LUA_GUI"
-
-gui.ResetOnSpawn =
-    false
-
-gui.IgnoreGuiInset =
-    true
-
-gui.DisplayOrder =
-    999999
-
-gui.ZIndexBehavior =
-    Enum.ZIndexBehavior.Sibling
-
-gui.Parent =
-    PlayerGui
-
--- ================================================================
--- MAIN FRAME
--- ================================================================
-
-local MainFrame =
-    Instance.new("Frame")
-
-MainFrame.Name =
-    "MainFrame"
-
-MainFrame.Size =
-    UDim2.new(
-        0,
-        327,
-        0,
-        119
-    )
-
-MainFrame.Position =
-    UDim2.new(
-        0.5,
-        -163,
-        0.5,
-        -60
-    )
-
-MainFrame.BackgroundColor3 =
-    Color3.fromRGB(
-        30,
-        30,
-        30
-    )
-
-MainFrame.BorderSizePixel =
-    0
-
-MainFrame.Active =
-    true
-
-MainFrame.ZIndex =
-    10
-
-MainFrame.Parent =
-    gui
-
-local MainCorner =
-    Instance.new("UICorner")
-
-MainCorner.CornerRadius =
-    UDim.new(
-        0,
-        8
-    )
-
-MainCorner.Parent =
-    MainFrame
-
--- ================================================================
--- TITLE
--- ================================================================
-
-local Title =
-    Instance.new("TextLabel")
-
-Title.Name =
-    "Title"
-
-Title.Size =
-    UDim2.new(
-        1,
-        -20,
-        0,
-        18
-    )
-
-Title.Position =
-    UDim2.new(
-        0,
-        10,
-        0,
-        2
-    )
-
-Title.BackgroundTransparency =
-    1
-
-Title.Text =
-    "MIDI2LUA"
-
-Title.TextColor3 =
-    Color3.fromRGB(
-        220,
-        220,
-        220
-    )
-
-Title.TextSize =
-    13
-
-Title.Font =
-    Enum.Font.SourceSansBold
-
-Title.TextXAlignment =
-    Enum.TextXAlignment.Left
-
-Title.ZIndex =
-    11
-
-Title.Parent =
-    MainFrame
-
--- ================================================================
--- DRAG
--- ================================================================
-
-local dragging =
-    false
-
-local dragStart
-local startPos
-
-Title.InputBegan:Connect(
-    function(input)
-
-        if
-            input.UserInputType
-            == Enum.UserInputType.MouseButton1
-        then
-
-            dragging =
-                true
-
-            dragStart =
-                input.Position
-
-            startPos =
-                MainFrame.Position
-
-            input.Changed:Connect(
-                function()
-
-                    if
-                        input.UserInputState
-                        == Enum.UserInputState.End
-                    then
-
-                        dragging =
-                            false
-
-                    end
-
-                end
-            )
-
-        end
-
-    end
-)
-
-UserInputService.InputChanged:Connect(
-    function(input)
-
-        if
-            dragging
-            and
-            input.UserInputType
-            == Enum.UserInputType.MouseMovement
-        then
-
-            local delta =
-                input.Position
-                - dragStart
-
-            MainFrame.Position =
-                UDim2.new(
-                    startPos.X.Scale,
-                    startPos.X.Offset + delta.X,
-
-                    startPos.Y.Scale,
-                    startPos.Y.Offset + delta.Y
-                )
-
-        end
-
-    end
-)
-
--- ================================================================
--- BUTTON CREATOR
--- ================================================================
-
-local function createButton(
-    name,
-    text,
-    x,
-    y,
-    width
-)
-
-    local button =
-        Instance.new("TextButton")
-
-    button.Name =
-        name
-
-    button.Size =
-        UDim2.new(
-            0,
-            width,
-            0,
-            28
-        )
-
-    button.Position =
-        UDim2.new(
-            0,
-            x,
-            0,
-            y
-        )
-
-    button.BackgroundColor3 =
-        Color3.fromRGB(
-            55,
-            55,
-            55
-        )
-
-    button.BorderSizePixel =
-        0
-
-    button.Text =
-        text
-
-    button.TextColor3 =
-        Color3.fromRGB(
-            255,
-            255,
-            255
-        )
-
-    button.TextSize =
-        14
-
-    button.Font =
-        Enum.Font.SourceSans
-
-    button.AutoButtonColor =
-        true
-
-    button.ZIndex =
-        11
-
-    button.Parent =
-        MainFrame
-
-    local corner =
-        Instance.new("UICorner")
-
-    corner.CornerRadius =
-        UDim.new(
-            0,
-            5
-        )
-
-    corner.Parent =
-        button
-
-    return button
-
-end
-
--- ================================================================
--- PAUSE
--- ================================================================
-
-local PauseButton =
-    createButton(
-        "PauseButton",
-        "Pause",
-        10,
-        22,
-        100
-    )
-
-PauseButton.MouseButton1Click:Connect(
-    function()
-
-        if _G.STOPIT then
-            return
-        end
-
-        pausing =
-            not pausing
-
-        if pausing then
-
-            PauseButton.Text =
-                "Resume"
-
-        else
-
-            PauseButton.Text =
-                "Pause"
-
-        end
-
-    end
-)
-
--- ================================================================
--- STOP
--- ================================================================
-
-local StopButton =
-    createButton(
-        "StopButton",
-        "Stop",
-        117,
-        22,
-        100
-    )
-
-StopButton.MouseButton1Click:Connect(
-    function()
-
-        stopPlayingSongs()
-
-        PauseButton.Text =
-            "Stopped"
-
-    end
-)
-
--- ================================================================
--- BPM LABEL
--- ================================================================
-
-local BPMLabel =
-    Instance.new("TextLabel")
-
-BPMLabel.Name =
-    "BPMLabel"
-
-BPMLabel.Size =
-    UDim2.new(
-        0,
-        82,
-        0,
-        25
-    )
-
-BPMLabel.Position =
-    UDim2.new(
-        0,
-        10,
-        0,
-        54
-    )
-
-BPMLabel.BackgroundTransparency =
-    1
-
-BPMLabel.TextColor3 =
-    Color3.fromRGB(
-        255,
-        255,
-        255
-    )
-
-BPMLabel.TextSize =
-    14
-
-BPMLabel.Font =
-    Enum.Font.SourceSans
-
-BPMLabel.TextXAlignment =
-    Enum.TextXAlignment.Left
-
-BPMLabel.ZIndex =
-    11
-
-BPMLabel.Parent =
-    MainFrame
-
--- ================================================================
--- BPM BUTTONS
--- ================================================================
-
-local BPMUp =
-    createButton(
-        "BPMUp",
-        "^",
-        91,
-        52,
-        25
-    )
-
-local BPMDown =
-    createButton(
-        "BPMDown",
-        "v",
-        119,
-        52,
-        25
-    )
-
--- ================================================================
--- ERROR LABEL
--- ================================================================
-
-local ErrorLabel =
-    Instance.new("TextLabel")
-
-ErrorLabel.Name =
-    "ErrorLabel"
-
-ErrorLabel.Size =
-    UDim2.new(
-        0,
-        100,
-        0,
-        25
-    )
-
-ErrorLabel.Position =
-    UDim2.new(
-        0,
-        150,
-        0,
-        54
-    )
-
-ErrorLabel.BackgroundTransparency =
-    1
-
-ErrorLabel.TextColor3 =
-    Color3.fromRGB(
-        255,
-        255,
-        255
-    )
-
-ErrorLabel.TextSize =
-    14
-
-ErrorLabel.Font =
-    Enum.Font.SourceSans
-
-ErrorLabel.TextXAlignment =
-    Enum.TextXAlignment.Left
-
-ErrorLabel.ZIndex =
-    11
-
-ErrorLabel.Parent =
-    MainFrame
-
--- ================================================================
--- ERROR BUTTONS
--- ================================================================
-
-local ErrorUp =
-    createButton(
-        "ErrorUp",
-        "↑",
-        258,
-        52,
-        25
-    )
-
-local ErrorDown =
-    createButton(
-        "ErrorDown",
-        "↓",
-        286,
-        52,
-        25
-    )
-
--- ================================================================
--- CREDIT
--- ================================================================
-
-local Credit =
-    Instance.new("TextLabel")
-
-Credit.Name =
-    "Credit"
-
-Credit.Size =
-    UDim2.new(
-        1,
-        -20,
-        0,
-        18
-    )
-
-Credit.Position =
-    UDim2.new(
-        0,
-        10,
-        0,
-        88
-    )
-
-Credit.BackgroundTransparency =
-    1
-
-Credit.Text =
-    "MIDI2LUA • Original-style playback"
-
-Credit.TextColor3 =
-    Color3.fromRGB(
-        140,
-        140,
-        140
-    )
-
-Credit.TextSize =
-    11
-
-Credit.Font =
-    Enum.Font.SourceSans
-
-Credit.TextXAlignment =
-    Enum.TextXAlignment.Left
-
-Credit.ZIndex =
-    11
-
-Credit.Parent =
-    MainFrame
-
--- ================================================================
--- UPDATE GUI TEXT
--- ================================================================
-
-local function updateBPMLabel()
-
-    BPMLabel.Text =
-        "BPM: "
-        .. tostring(
-            math.floor(
-                tonumber(bpm)
-                or 120
-            )
-        )
-
-end
-
-local function updateErrorLabel()
-
-    ErrorLabel.Text =
-        "Error: "
-        .. string.format(
-            "%.2f",
-            tonumber(errormargin)
-            or 0
-        )
-
-end
-
-updateBPMLabel()
-updateErrorLabel()
-
--- ================================================================
--- BPM UP
--- ================================================================
-
-BPMUp.MouseButton1Click:Connect(
-    function()
-
-        bpm =
-            math.min(
-                999,
-                (tonumber(bpm) or 120)
-                + 1
-            )
-
-        updateBPMLabel()
-
-    end
-)
-
--- ================================================================
--- BPM DOWN
--- ================================================================
-
-BPMDown.MouseButton1Click:Connect(
-    function()
-
-        bpm =
-            math.max(
-                1,
-                (tonumber(bpm) or 120)
-                - 1
-            )
-
-        updateBPMLabel()
-
-    end
-)
-
--- ================================================================
--- ERROR UP
--- ================================================================
-
-ErrorUp.MouseButton1Click:Connect(
-    function()
-
-        errormargin =
-            math.min(
-                1,
-                (tonumber(errormargin) or 0)
-                + 0.01
-            )
-
-        updateErrorLabel()
-
-    end
-)
-
--- ================================================================
--- ERROR DOWN
--- ================================================================
-
-ErrorDown.MouseButton1Click:Connect(
-    function()
-
-        errormargin =
-            math.max(
-                0,
-                (tonumber(errormargin) or 0)
-                - 0.01
-            )
-
-        updateErrorLabel()
-
     end
 )
 
@@ -1833,8 +1174,4 @@ print(
 
 print(
     "Repeated-key protection: ENABLED"
-)
-
-print(
-    "GUI: ENABLED"
 )
