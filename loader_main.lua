@@ -1147,7 +1147,772 @@ end
 -- ================================================================
 -- CHARACTER SAFETY
 -- ================================================================
+-- ================================================================
+-- GUI
+-- ================================================================
 
+local CoreGui =
+    game:GetService("CoreGui")
+
+local gui =
+    Instance.new("ScreenGui")
+
+gui.Name =
+    "MIDI2LUA_GUI"
+
+gui.ResetOnSpawn =
+    false
+
+gui.ZIndexBehavior =
+    Enum.ZIndexBehavior.Sibling
+
+pcall(function()
+    gui.Parent = CoreGui
+end)
+
+if not gui.Parent then
+    gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- ================================================================
+-- MAIN FRAME
+-- ================================================================
+
+local MainFrame =
+    Instance.new("Frame")
+
+MainFrame.Name =
+    "MainFrame"
+
+MainFrame.Size =
+    UDim2.new(
+        0,
+        327,
+        0,
+        119
+    )
+
+MainFrame.Position =
+    UDim2.new(
+        0.5,
+        -163,
+        0.5,
+        -60
+    )
+
+MainFrame.BackgroundColor3 =
+    Color3.fromRGB(
+        30,
+        30,
+        30
+    )
+
+MainFrame.BorderSizePixel =
+    0
+
+MainFrame.Parent =
+    gui
+
+-- ================================================================
+-- CORNER
+-- ================================================================
+
+local Corner =
+    Instance.new("UICorner")
+
+Corner.CornerRadius =
+    UDim.new(
+        0,
+        8
+    )
+
+Corner.Parent =
+    MainFrame
+
+-- ================================================================
+-- DRAGGING
+-- ================================================================
+
+local dragging =
+    false
+
+local dragStart
+local startPos
+
+MainFrame.InputBegan:Connect(
+    function(input)
+
+        if
+            input.UserInputType
+            == Enum.UserInputType.MouseButton1
+        then
+
+            dragging =
+                true
+
+            dragStart =
+                input.Position
+
+            startPos =
+                MainFrame.Position
+
+            input.Changed:Connect(
+                function()
+
+                    if
+                        input.UserInputState
+                        == Enum.UserInputState.End
+                    then
+
+                        dragging =
+                            false
+
+                    end
+
+                end
+            )
+
+        end
+
+    end
+)
+
+UserInputService.InputChanged:Connect(
+    function(input)
+
+        if
+            dragging
+            and
+            input.UserInputType
+            == Enum.UserInputType.MouseMovement
+        then
+
+            local delta =
+                input.Position
+                - dragStart
+
+            MainFrame.Position =
+                UDim2.new(
+                    startPos.X.Scale,
+                    startPos.X.Offset + delta.X,
+                    startPos.Y.Scale,
+                    startPos.Y.Offset + delta.Y
+                )
+
+        end
+
+    end
+)
+
+-- ================================================================
+-- PAUSE BUTTON
+-- ================================================================
+
+local PauseButton =
+    Instance.new("TextButton")
+
+PauseButton.Name =
+    "PauseButton"
+
+PauseButton.Size =
+    UDim2.new(
+        0,
+        100,
+        0,
+        32
+    )
+
+PauseButton.Position =
+    UDim2.new(
+        0,
+        10,
+        0,
+        10
+    )
+
+PauseButton.BackgroundColor3 =
+    Color3.fromRGB(
+        55,
+        55,
+        55
+    )
+
+PauseButton.BorderSizePixel =
+    0
+
+PauseButton.Text =
+    "Pause"
+
+PauseButton.TextColor3 =
+    Color3.fromRGB(
+        255,
+        255,
+        255
+    )
+
+PauseButton.TextSize =
+    14
+
+PauseButton.Font =
+    Enum.Font.SourceSans
+
+PauseButton.Parent =
+    MainFrame
+
+local PauseCorner =
+    Instance.new("UICorner")
+
+PauseCorner.CornerRadius =
+    UDim.new(
+        0,
+        5
+    )
+
+PauseCorner.Parent =
+    PauseButton
+
+PauseButton.MouseButton1Click:Connect(
+    function()
+
+        if _G.STOPIT then
+            return
+        end
+
+        pausing =
+            not pausing
+
+        if pausing then
+
+            PauseButton.Text =
+                "Resume"
+
+        else
+
+            PauseButton.Text =
+                "Pause"
+
+        end
+
+    end
+)
+
+-- ================================================================
+-- STOP BUTTON
+-- ================================================================
+
+local StopButton =
+    Instance.new("TextButton")
+
+StopButton.Name =
+    "StopButton"
+
+StopButton.Size =
+    UDim2.new(
+        0,
+        100,
+        0,
+        32
+    )
+
+StopButton.Position =
+    UDim2.new(
+        0,
+        117,
+        0,
+        10
+    )
+
+StopButton.BackgroundColor3 =
+    Color3.fromRGB(
+        55,
+        55,
+        55
+    )
+
+StopButton.BorderSizePixel =
+    0
+
+StopButton.Text =
+    "Stop"
+
+StopButton.TextColor3 =
+    Color3.fromRGB(
+        255,
+        255,
+        255
+    )
+
+StopButton.TextSize =
+    14
+
+StopButton.Font =
+    Enum.Font.SourceSans
+
+StopButton.Parent =
+    MainFrame
+
+local StopCorner =
+    Instance.new("UICorner")
+
+StopCorner.CornerRadius =
+    UDim.new(
+        0,
+        5
+    )
+
+StopCorner.Parent =
+    StopButton
+
+StopButton.MouseButton1Click:Connect(
+    function()
+
+        stopPlayingSongs()
+
+    end
+)
+
+-- ================================================================
+-- BPM LABEL
+-- ================================================================
+
+local BPMLabel =
+    Instance.new("TextLabel")
+
+BPMLabel.Name =
+    "BPMLabel"
+
+BPMLabel.Size =
+    UDim2.new(
+        0,
+        90,
+        0,
+        25
+    )
+
+BPMLabel.Position =
+    UDim2.new(
+        0,
+        10,
+        0,
+        50
+    )
+
+BPMLabel.BackgroundTransparency =
+    1
+
+BPMLabel.TextColor3 =
+    Color3.fromRGB(
+        255,
+        255,
+        255
+    )
+
+BPMLabel.TextSize =
+    14
+
+BPMLabel.Font =
+    Enum.Font.SourceSans
+
+BPMLabel.TextXAlignment =
+    Enum.TextXAlignment.Left
+
+BPMLabel.Parent =
+    MainFrame
+
+-- ================================================================
+-- BPM UP
+-- ================================================================
+
+local BPMUp =
+    Instance.new("TextButton")
+
+BPMUp.Size =
+    UDim2.new(
+        0,
+        25,
+        0,
+        25
+    )
+
+BPMUp.Position =
+    UDim2.new(
+        0,
+        100,
+        0,
+        50
+    )
+
+BPMUp.BackgroundColor3 =
+    Color3.fromRGB(
+        55,
+        55,
+        55
+    )
+
+BPMUp.BorderSizePixel =
+    0
+
+BPMUp.Text =
+    "^"
+
+BPMUp.TextColor3 =
+    Color3.fromRGB(
+        255,
+        255,
+        255
+    )
+
+BPMUp.TextSize =
+    14
+
+BPMUp.Parent =
+    MainFrame
+
+-- ================================================================
+-- BPM DOWN
+-- ================================================================
+
+local BPMDown =
+    Instance.new("TextButton")
+
+BPMDown.Size =
+    UDim2.new(
+        0,
+        25,
+        0,
+        25
+    )
+
+BPMDown.Position =
+    UDim2.new(
+        0,
+        128,
+        0,
+        50
+    )
+
+BPMDown.BackgroundColor3 =
+    Color3.fromRGB(
+        55,
+        55,
+        55
+    )
+
+BPMDown.BorderSizePixel =
+    0
+
+BPMDown.Text =
+    "v"
+
+BPMDown.TextColor3 =
+    Color3.fromRGB(
+        255,
+        255,
+        255
+    )
+
+BPMDown.TextSize =
+    14
+
+BPMDown.Parent =
+    MainFrame
+
+-- ================================================================
+-- ERROR MARGIN LABEL
+-- ================================================================
+
+local ErrorLabel =
+    Instance.new("TextLabel")
+
+ErrorLabel.Name =
+    "ErrorLabel"
+
+ErrorLabel.Size =
+    UDim2.new(
+        0,
+        105,
+        0,
+        25
+    )
+
+ErrorLabel.Position =
+    UDim2.new(
+        0,
+        170,
+        0,
+        50
+    )
+
+ErrorLabel.BackgroundTransparency =
+    1
+
+ErrorLabel.TextColor3 =
+    Color3.fromRGB(
+        255,
+        255,
+        255
+    )
+
+ErrorLabel.TextSize =
+    14
+
+ErrorLabel.Font =
+    Enum.Font.SourceSans
+
+ErrorLabel.TextXAlignment =
+    Enum.TextXAlignment.Left
+
+ErrorLabel.Parent =
+    MainFrame
+
+-- ================================================================
+-- ERROR UP
+-- ================================================================
+
+local ErrorUp =
+    Instance.new("TextButton")
+
+ErrorUp.Size =
+    UDim2.new(
+        0,
+        25,
+        0,
+        25
+    )
+
+ErrorUp.Position =
+    UDim2.new(
+        0,
+        275,
+        0,
+        50
+    )
+
+ErrorUp.BackgroundColor3 =
+    Color3.fromRGB(
+        55,
+        55,
+        55
+    )
+
+ErrorUp.BorderSizePixel =
+    0
+
+ErrorUp.Text =
+    "↑"
+
+ErrorUp.TextColor3 =
+    Color3.fromRGB(
+        255,
+        255,
+        255
+    )
+
+ErrorUp.TextSize =
+    14
+
+ErrorUp.Parent =
+    MainFrame
+
+-- ================================================================
+-- ERROR DOWN
+-- ================================================================
+
+local ErrorDown =
+    Instance.new("TextButton")
+
+ErrorDown.Size =
+    UDim2.new(
+        0,
+        25,
+        0,
+        25
+    )
+
+ErrorDown.Position =
+    UDim2.new(
+        0,
+        300,
+        0,
+        50
+    )
+
+ErrorDown.BackgroundColor3 =
+    Color3.fromRGB(
+        55,
+        55,
+        55
+    )
+
+ErrorDown.BorderSizePixel =
+    0
+
+ErrorDown.Text =
+    "↓"
+
+ErrorDown.TextColor3 =
+    Color3.fromRGB(
+        255,
+        255,
+        255
+    )
+
+ErrorDown.TextSize =
+    14
+
+ErrorDown.Parent =
+    MainFrame
+
+-- ================================================================
+-- UPDATE LABELS
+-- ================================================================
+
+local function updateBPMLabel()
+
+    BPMLabel.Text =
+        "BPM: "
+        .. tostring(
+            math.floor(
+                tonumber(bpm)
+                or 120
+            )
+        )
+
+end
+
+local function updateErrorLabel()
+
+    ErrorLabel.Text =
+        "Error: "
+        .. string.format(
+            "%.2f",
+            tonumber(errormargin)
+            or 0
+        )
+
+end
+
+updateBPMLabel()
+updateErrorLabel()
+
+-- ================================================================
+-- BPM CONTROLS
+-- ================================================================
+
+BPMUp.MouseButton1Click:Connect(
+    function()
+
+        bpm =
+            math.min(
+                999,
+                (tonumber(bpm) or 120)
+                + 1
+            )
+
+        updateBPMLabel()
+
+    end
+)
+
+BPMDown.MouseButton1Click:Connect(
+    function()
+
+        bpm =
+            math.max(
+                1,
+                (tonumber(bpm) or 120)
+                - 1
+            )
+
+        updateBPMLabel()
+
+    end
+)
+
+-- ================================================================
+-- ERROR MARGIN CONTROLS
+-- ================================================================
+
+ErrorUp.MouseButton1Click:Connect(
+    function()
+
+        errormargin =
+            math.min(
+                1,
+                (tonumber(errormargin) or 0)
+                + 0.01
+            )
+
+        updateErrorLabel()
+
+    end
+)
+
+ErrorDown.MouseButton1Click:Connect(
+    function()
+
+        errormargin =
+            math.max(
+                0,
+                (tonumber(errormargin) or 0)
+                - 0.01
+            )
+
+        updateErrorLabel()
+
+    end
+)
+
+-- ================================================================
+-- CREDIT
+-- ================================================================
+
+local Credit =
+    Instance.new("TextLabel")
+
+Credit.Name =
+    "Credit"
+
+Credit.Size =
+    UDim2.new(
+        1,
+        -20,
+        0,
+        20
+    )
+
+Credit.Position =
+    UDim2.new(
+        0,
+        10,
+        0,
+        89
+    )
+
+Credit.BackgroundTransparency =
+    1
+
+Credit.Text =
+    "MIDI2LUA"
+
+Credit.TextColor3 =
+    Color3.fromRGB(
+        150,
+        150,
+        150
+    )
+
+Credit.TextSize =
+    12
+
+Credit.Font =
+    Enum.Font.SourceSans
+
+Credit.TextXAlignment =
+    Enum.TextXAlignment.Left
+
+Credit.Parent =
+    MainFrame
 LocalPlayer.CharacterRemoving:Connect(
     function()
         releaseAllInputs()
