@@ -1,104 +1,498 @@
--- MIDI2LUA loader
--- Original-style playback
---
--- No timeline
--- No seek
--- No +/- time controls
--- No random Shift
---
--- Repeated notes such as:
--- d d p
--- p p
--- l l
--- are handled with per-key generations.
+-- some parts are skidded from chatgpt
+-- the comments are not from chatgpt though becvause i legitamately need them for debugging and to easily know whats going on if theres an issue
 
 _G.STOPIT = false
 
 local NotificationLibrary =
-    loadstring(game:HttpGet(
-        "https://raw.githubusercontent.com/hellohellohell012321/TALENTLESS/main/notif_lib.lua"
-    ))()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/hellohellohell012321/TALENTLESS/main/notif_lib.lua"))()
 
-local UserInputService =
-    game:GetService("UserInputService")
+function playSound(soundId, loudness)
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://" .. soundId
+    sound.Parent = game.Players.LocalPlayer.Character or game.Players.LocalPlayer
+    sound.Volume = loudness or 1
+    sound:Play()
+end
 
-local VirtualInputManager =
+x = "hi"
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/load.lua", true))()
+
+wait(0.3)
+
+playSound("6493287948", 0.1)
+NotificationLibrary:SendNotification("Success", "Began playing song.", 1)
+
+-- StarterGui.ScreenGui
+lilgui = Instance.new("ScreenGui", game:GetService("CoreGui"))
+lilgui["ZIndexBehavior"] = Enum.ZIndexBehavior.Sibling
+
+-- StarterGui.ScreenGui.Frame
+local fram = Instance.new("Frame", lilgui)
+fram["BorderSizePixel"] = 0
+fram["BackgroundColor3"] = Color3.fromRGB(32, 32, 32)
+fram["Size"] = UDim2.new(0, 327, 0, 119)
+fram["Position"] = UDim2.new(0.5, 0, 0.5, 0)
+fram["BorderColor3"] = Color3.fromRGB(0, 0, 0)
+fram.AnchorPoint = Vector2.new(0.5, 0.5)
+
+-- StarterGui.ScreenGui.Frame.UICorner
+local uic = Instance.new("UICorner", fram)
+
+-- StarterGui.ScreenGui.Frame.pause
+local pausebutton = Instance.new("ImageButton", fram)
+pausebutton["BorderSizePixel"] = 0
+pausebutton["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
+pausebutton["Image"] = [[http://www.roblox.com/asset/?id=86903979265676]]
+pausebutton["Size"] = UDim2.new(0, 50, 0, 50)
+pausebutton["Name"] = [[pause]]
+pausebutton["BorderColor3"] = Color3.fromRGB(0, 0, 0)
+pausebutton["Position"] = UDim2.new(0.04171, 0, 0.09428, 0)
+pausebutton.BackgroundTransparency = 1
+
+-- StarterGui.ScreenGui.Frame.stop
+stopbutton = Instance.new("ImageButton", fram)
+stopbutton["BorderSizePixel"] = 0
+stopbutton["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
+stopbutton["Image"] = [[http://www.roblox.com/asset/?id=99665585363395]]
+stopbutton["Size"] = UDim2.new(0, 50, 0, 50)
+stopbutton["Name"] = [[stop]]
+stopbutton["BorderColor3"] = Color3.fromRGB(0, 0, 0)
+stopbutton["Position"] = UDim2.new(0.25134, 0, 0.09428, 0)
+stopbutton.BackgroundTransparency = 1
+
+-- StarterGui.ScreenGui.Frame.bpm
+local bpmtext = Instance.new("TextLabel", fram)
+bpmtext["TextWrapped"] = true
+bpmtext["BorderSizePixel"] = 0
+bpmtext["TextSize"] = 14
+bpmtext["TextScaled"] = true
+bpmtext["BackgroundColor3"] = Color3.fromRGB(255, 108, 154)
+bpmtext["FontFace"] =
+    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+bpmtext["TextColor3"] = Color3.fromRGB(0, 0, 0)
+bpmtext["Size"] = UDim2.new(0, 122, 0, 34)
+bpmtext["BorderColor3"] = Color3.fromRGB(0, 0, 0)
+bpmtext["Text"] = "BPM: " .. tostring(bpm)
+bpmtext["Name"] = [[bpm]]
+bpmtext["Position"] = UDim2.new(0.51155, 0, 0.15823, 0)
+
+-- StarterGui.ScreenGui.Frame.up
+local upbpm = Instance.new("TextButton", fram)
+upbpm["TextWrapped"] = true
+upbpm["BorderSizePixel"] = 0
+upbpm["TextColor3"] = Color3.fromRGB(255, 255, 255)
+upbpm["TextSize"] = 14
+upbpm["TextScaled"] = true
+upbpm["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
+upbpm["FontFace"] =
+    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+upbpm["Size"] = UDim2.new(0, 34, 0, 34)
+upbpm["BackgroundTransparency"] = 1
+upbpm["Name"] = [[up]]
+upbpm["BorderColor3"] = Color3.fromRGB(0, 0, 0)
+upbpm["Text"] = [[^]]
+upbpm["Position"] = UDim2.new(0.40495, 0, 0.15823, 0)
+
+-- StarterGui.ScreenGui.Frame.down
+local downbpm = Instance.new("TextButton", fram)
+downbpm["TextWrapped"] = true
+downbpm["BorderSizePixel"] = 0
+downbpm["TextColor3"] = Color3.fromRGB(255, 255, 255)
+downbpm["TextSize"] = 14
+downbpm["TextScaled"] = true
+downbpm["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
+downbpm["FontFace"] =
+    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+downbpm["Size"] = UDim2.new(0, 34, 0, 34)
+downbpm["BackgroundTransparency"] = 1
+downbpm["Name"] = [[down]]
+downbpm["BorderColor3"] = Color3.fromRGB(0, 0, 0)
+downbpm["Text"] = [[v]]
+downbpm["Position"] = UDim2.new(0.88463, 0, 0.15823, 0)
+
+-- StarterGui.ScreenGui.Frame.errorbox
+local errorbox = Instance.new("TextLabel", fram)
+errorbox["TextWrapped"] = true
+errorbox["BorderSizePixel"] = 0
+errorbox["TextSize"] = 14
+errorbox["TextScaled"] = true
+errorbox["BackgroundColor3"] = Color3.fromRGB(255, 109, 155)
+errorbox["FontFace"] =
+    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+errorbox["TextColor3"] = Color3.fromRGB(0, 0, 0)
+errorbox["Size"] = UDim2.new(0, 117, 0, 31)
+errorbox["BorderColor3"] = Color3.fromRGB(0, 0, 0)
+errorbox["Text"] = [[error margin: 0.00]]
+errorbox["Name"] = [[errorbox]]
+errorbox["Position"] = UDim2.new(0.11705, 0, 0.59848, 0)
+
+-- StarterGui.ScreenGui.Frame.less
+local less = Instance.new("TextButton", fram)
+less["TextWrapped"] = true
+less["BorderSizePixel"] = 0
+less["TextColor3"] = Color3.fromRGB(255, 255, 255)
+less["TextSize"] = 14
+less["TextScaled"] = true
+less["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
+less["FontFace"] =
+    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+less["Size"] = UDim2.new(0, 31, 0, 30)
+less["BackgroundTransparency"] = 1
+less["Name"] = [[less]]
+less["BorderColor3"] = Color3.fromRGB(0, 0, 0)
+less["Text"] = [[↓]]
+less["Position"] = UDim2.new(0.47439, 0, 0.59848, 0)
+
+-- StarterGui.ScreenGui.Frame.more
+local more = Instance.new("TextButton", fram)
+more["TextWrapped"] = true
+more["BorderSizePixel"] = 0
+more["TextColor3"] = Color3.fromRGB(255, 255, 255)
+more["TextSize"] = 14
+more["TextScaled"] = true
+more["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
+more["FontFace"] =
+    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+more["Size"] = UDim2.new(0, 31, 0, 30)
+more["BackgroundTransparency"] = 1
+more["Name"] = [[more]]
+more["BorderColor3"] = Color3.fromRGB(0, 0, 0)
+more["Text"] = [[↑]]
+more["Position"] = UDim2.new(0.01963, 0, 0.59848, 0)
+
+local info = Instance.new("TextLabel", fram)
+info["TextWrapped"] = true
+info["BorderSizePixel"] = 0
+info["TextSize"] = 14
+info["TextScaled"] = true
+info["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
+info["FontFace"] =
+    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+info["TextColor3"] = Color3.fromRGB(0, 0, 0)
+info["Size"] = UDim2.new(0, 126, 0, 39)
+info["BorderColor3"] = Color3.fromRGB(0, 0, 0)
+info["Text"] = [[created by gau1234ct5 at stxllar scripts!]]
+info["Name"] = [[info]]
+info["Position"] = UDim2.new(0.56919, 0, 0.56487, 0)
+
+local UserInputService = game:GetService("UserInputService")
+
+local gui = fram
+
+local dragging
+local dragInput
+local dragStart
+local startPos
+
+local function update(input)
+    local delta = input.Position - dragStart
+    gui.Position =
+        UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+end
+
+gui.InputBegan:Connect(
+    function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+
+            dragging = true
+            dragStart = input.Position
+            startPos = gui.Position
+
+            input.Changed:Connect(
+                function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                    end
+                end
+            )
+        end
+    end
+)
+
+gui.InputChanged:Connect(
+    function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+
+            dragInput = input
+        end
+    end
+)
+
+UserInputService.InputChanged:Connect(
+    function(input)
+        if input == dragInput and dragging then
+            update(input)
+        end
+    end
+)
+
+function stopPlayingSongs()
+
+    print("stopped.")
+
+    _G.STOPIT = true
+
+    songisplaying = false
+
+    playSound("6493287948", 0.1)
+
+    NotificationLibrary:SendNotification(
+        "Success",
+        "Stopping...",
+        1
+    )
+
+    lilgui:Destroy()
+end
+
+function finishedSong()
+
+    if _G.STOPIT then
+        return
+    end
+
+    playSound("6493287948", 0.1)
+
+    NotificationLibrary:SendNotification(
+        "Success",
+        "Your song has finished.",
+        3
+    )
+
+    songisplaying = false
+
+    lilgui:Destroy()
+    lilgui = nil
+end
+
+local resumeEvent =
+    Instance.new("BindableEvent")
+
+pausing = false
+
+local function pauseSong()
+
+    pausing = not pausing
+
+    if not pausing then
+
+        pausebutton.Image =
+            "http://www.roblox.com/asset/?id=86903979265676"
+
+        resumeEvent:Fire()
+
+        pausing = false
+
+        playSound(
+            "6493287948",
+            0.1
+        )
+
+        NotificationLibrary:SendNotification(
+            "Success",
+            "You have resumed playing.",
+            1
+        )
+
+    else
+
+        pausing = true
+
+        pausebutton.Image =
+            "http://www.roblox.com/asset/?id=130610056660845"
+
+        playSound(
+            "6493287948",
+            0.1
+        )
+
+        NotificationLibrary:SendNotification(
+            "Success",
+            "You have paused your playing.",
+            1
+        )
+    end
+end
+
+pausebutton.MouseButton1Click:Connect(
+    pauseSong
+)
+
+stopbutton.MouseButton1Click:Connect(
+    stopPlayingSongs
+)
+
+function updatebpmtext()
+
+    bpmtext.Text =
+        "BPM: "
+        .. tostring(bpm)
+
+end
+
+updatebpmtext()
+
+upbpm.MouseButton1Click:Connect(
+    function()
+
+        bpm =
+            bpm + 10
+
+        updatebpmtext()
+
+    end
+)
+
+downbpm.MouseButton1Click:Connect(
+    function()
+
+        bpm =
+            bpm - 10
+
+        updatebpmtext()
+
+    end
+)
+
+if not errormargin then
+
+    errormargin = 0
+
+else
+
+end
+
+local function updateErrorMargin()
+
+    errorbox.Text =
+        "error margin: "
+        .. tostring(errormargin)
+
+end
+
+updateErrorMargin()
+
+local function round(
+    num,
+    decimalPlaces
+)
+
+    local mult =
+        10 ^ decimalPlaces
+
+    return math.floor(
+        num * mult + 0.5
+    ) / mult
+
+end
+
+more.MouseButton1Click:Connect(
+    function()
+
+        errormargin =
+            round(
+                errormargin + 0.005,
+                3
+            )
+
+        updateErrorMargin()
+
+    end
+)
+
+less.MouseButton1Click:Connect(
+    function()
+
+        if errormargin <= 0 then
+            return
+        end
+
+        errormargin =
+            round(
+                errormargin - 0.005,
+                3
+            )
+
+        updateErrorMargin()
+
+    end
+)
+
+VirtualInputManager =
     game:GetService("VirtualInputManager")
 
-local Players =
-    game:GetService("Players")
-
-local LocalPlayer =
-    Players.LocalPlayer
-
 -- ================================================================
--- SOUND
+-- PRESSKEY FUNCTION
 -- ================================================================
-
-local function playSound(soundId, loudness)
-    local sound =
-        Instance.new("Sound")
-
-    sound.SoundId =
-        "rbxassetid://" .. tostring(soundId)
-
-    sound.Parent =
-        LocalPlayer.Character or LocalPlayer
-
-    sound.Volume =
-        loudness or 1
-
-    sound:Play()
-
-    task.delay(3, function()
-        if sound then
-            sound:Destroy()
-        end
-    end)
-end
-
--- ================================================================
--- LOAD MAIN AUTOPIANO FILE
+--
+-- IMPORTANT SHIFT RULE:
+--
+-- lowercase:
+-- d -> D KEY WITHOUT SHIFT
+-- p -> P KEY WITHOUT SHIFT
+--
+-- uppercase:
+-- D -> D KEY WITH SHIFT
+-- P -> P KEY WITH SHIFT
+--
+-- symbols:
+-- ! @ # $ % ^ & * ( ) -> SHIFT
+--
+-- THERE IS NO RANDOM SHIFT.
+-- THERE IS NO RANDOM UNSHIFT.
+-- SHIFT IS NEVER LEFT HELD.
 -- ================================================================
 
-loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/load.lua",
-    true
-))()
+local shiftKeys = {
 
-task.wait(0.3)
+    "!",
+    "@",
+    "#",
+    "$",
+    "%",
+    "^",
+    "&",
+    "*",
+    "(",
+    ")",
 
-playSound(
-    "6493287948",
-    0.1
-)
+    "Q",
+    "W",
+    "E",
+    "R",
+    "T",
+    "Y",
+    "U",
+    "I",
+    "O",
+    "P",
 
-NotificationLibrary:SendNotification(
-    "Success",
-    "MIDI2LUA loader loaded.",
-    1
-)
+    "A",
+    "S",
+    "D",
+    "F",
+    "G",
+    "H",
+    "J",
+    "K",
+    "L",
 
--- ================================================================
--- GLOBAL SETTINGS
--- ================================================================
-
-local songPlaying = false
-local pausing = false
-
-local errormargin =
-    tonumber(errormargin) or 0
-
-bpm =
-    tonumber(bpm) or 120
-
-if bpm <= 0 then
-    bpm = 120
-end
-
--- ================================================================
--- KEY MAPPINGS
--- ================================================================
+    "Z",
+    "X",
+    "C",
+    "V",
+    "B",
+    "N",
+    "M"
+}
 
 local keyMappings = {
 
@@ -211,427 +605,34 @@ local keyMappings = {
     ["M"] = Enum.KeyCode.M
 }
 
--- ================================================================
--- SHIFT MAP
---
--- IMPORTANT:
---
--- Lowercase:
--- d -> D key WITHOUT Shift
---
--- Uppercase:
--- D -> D key WITH Shift
---
--- There is NO random Shift.
--- ================================================================
-
-local shiftRequired = {
-
-    ["!"] = true,
-    ["@"] = true,
-    ["#"] = true,
-    ["$"] = true,
-    ["%"] = true,
-    ["^"] = true,
-    ["&"] = true,
-    ["*"] = true,
-    ["("] = true,
-    [")"] = true,
-
-    ["Q"] = true,
-    ["W"] = true,
-    ["E"] = true,
-    ["R"] = true,
-    ["T"] = true,
-    ["Y"] = true,
-    ["U"] = true,
-    ["I"] = true,
-    ["O"] = true,
-    ["P"] = true,
-
-    ["A"] = true,
-    ["S"] = true,
-    ["D"] = true,
-    ["F"] = true,
-    ["G"] = true,
-    ["H"] = true,
-    ["J"] = true,
-    ["K"] = true,
-    ["L"] = true,
-
-    ["Z"] = true,
-    ["X"] = true,
-    ["C"] = true,
-    ["V"] = true,
-    ["B"] = true,
-    ["N"] = true,
-    ["M"] = true
-}
-
--- ================================================================
--- KEY GENERATION
---
--- Prevents:
---
--- d #1:
---     key down
---
--- d #2:
---     key down
---
--- old d #1:
---     key up
---
--- from cancelling the newer d #2.
--- ================================================================
-
-local keyGeneration = {}
-
-local function getKeyId(key)
-    return tostring(key)
-end
-
-local function createKeyGeneration(key)
-
-    local id =
-        getKeyId(key)
-
-    keyGeneration[id] =
-        (keyGeneration[id] or 0) + 1
-
-    return keyGeneration[id]
-end
-
-local function isCurrentGeneration(
-    key,
-    generation
-)
-    return
-        keyGeneration[
-            getKeyId(key)
-        ] == generation
-end
-
--- ================================================================
--- RELEASE EVERYTHING
--- ================================================================
-
-local function releaseAllInputs()
-
-    for _, keyCode in pairs(keyMappings) do
-
-        pcall(function()
-
-            VirtualInputManager:SendKeyEvent(
-                false,
-                keyCode,
-                false,
-                game
-            )
-
-        end)
-
-    end
-
-    pcall(function()
-
-        VirtualInputManager:SendKeyEvent(
-            false,
-            Enum.KeyCode.LeftShift,
-            false,
-            game
-        )
-
-    end)
-
-    pcall(function()
-
-        VirtualInputManager:SendKeyEvent(
-            false,
-            Enum.KeyCode.LeftControl,
-            false,
-            game
-        )
-
-    end)
-
-    pcall(function()
-
-        VirtualInputManager:SendKeyEvent(
-            false,
-            Enum.KeyCode.LeftAlt,
-            false,
-            game
-        )
-
-    end)
-
-    pcall(function()
-
-        VirtualInputManager:SendKeyEvent(
-            false,
-            Enum.KeyCode.Space,
-            false,
-            game
-        )
-
-    end)
-end
-
--- ================================================================
--- NOTE HOLD TIME
--- ================================================================
-
-local function getHoldTime(
-    beats,
-    isShort,
-    bpmValue
-)
-
-    if isShort then
-
-        return math.random(
-            4,
-            12
-        ) / 100
-
-    end
-
-    if
-        type(beats) ~= "number"
-        or beats <= 0
-    then
-
-        return 0.04
-
-    end
-
-    local safeBpm =
-        math.max(
-            tonumber(bpmValue)
-                or tonumber(bpm)
-                or 120,
-            1
-        )
-
-    local noteTime =
-        (beats / safeBpm) * 60
-
-    local maxRandom =
-        noteTime / 2
-
-    local randomOff =
-        math.random() * maxRandom
-
-    return math.max(
-        0.01,
-        noteTime - randomOff
-    )
-end
-
--- ================================================================
--- PRESS ONE KEY
--- ================================================================
-
-local function pressSingleKey(
-    key,
-    beats,
-    isShort,
-    ctrlRequired
-)
-
-    if _G.STOPIT then
-        return
-    end
-
-    local keyCode =
-        keyMappings[key]
-
-    if not keyCode then
-
-        warn(
-            "Unknown key mapping: "
-            .. tostring(key)
-        )
-
-        return
-    end
-
-    local generation =
-        createKeyGeneration(key)
-
-    -- Make sure an old hold does not
-    -- remain active before retriggering.
-    pcall(function()
-
-        VirtualInputManager:SendKeyEvent(
-            false,
-            keyCode,
-            false,
-            game
-        )
-
-    end)
-
-    local needsShift =
-        shiftRequired[key] == true
-
-    -- ============================================================
-    -- CTRL
-    -- ============================================================
-
-    if ctrlRequired then
-
-        VirtualInputManager:SendKeyEvent(
-            true,
-            Enum.KeyCode.LeftControl,
-            false,
-            game
-        )
-
-    end
-
-    -- ============================================================
-    -- SHIFT
-    --
-    -- ONLY uppercase/symbol mappings get Shift.
-    --
-    -- There is NO random Shift here.
-    -- ============================================================
-
-    if needsShift then
-
-        VirtualInputManager:SendKeyEvent(
-            true,
-            Enum.KeyCode.LeftShift,
-            false,
-            game
-        )
-
-    end
-
-    -- ============================================================
-    -- KEY DOWN
-    -- ============================================================
-
-    VirtualInputManager:SendKeyEvent(
-        true,
-        keyCode,
-        false,
-        game
-    )
-
-    -- ============================================================
-    -- RELEASE MODIFIERS
-    --
-    -- We do NOT keep Shift held.
-    -- ============================================================
-
-    if needsShift then
-
-        VirtualInputManager:SendKeyEvent(
-            false,
-            Enum.KeyCode.LeftShift,
-            false,
-            game
-        )
-
-    end
-
-    if ctrlRequired then
-
-        VirtualInputManager:SendKeyEvent(
-            false,
-            Enum.KeyCode.LeftControl,
-            false,
-            game
-        )
-
-    end
-
-    -- ============================================================
-    -- HOLD
-    -- ============================================================
-
-    local waitTime =
-        getHoldTime(
-            beats,
-            isShort,
-            bpm
-        )
-
-    task.wait(waitTime)
-
-    -- ============================================================
-    -- STOP SAFETY
-    -- ============================================================
-
-    if _G.STOPIT then
-
-        pcall(function()
-
-            VirtualInputManager:SendKeyEvent(
-                false,
-                keyCode,
-                false,
-                game
-            )
-
-        end)
-
-        return
-    end
-
-    -- ============================================================
-    -- ONLY NEWEST GENERATION MAY RELEASE
-    -- ============================================================
-
-    if isCurrentGeneration(
-        key,
-        generation
-    ) then
-
-        VirtualInputManager:SendKeyEvent(
-            false,
-            keyCode,
-            false,
-            game
-        )
-
-    end
-end
-
--- ================================================================
--- PRESS KEY / CHORD
--- ================================================================
-
 local function pressKey(
     keys,
     beats,
-    isShort
+    bpm
 )
 
     if _G.STOPIT then
         return
     end
 
-    keys =
-        tostring(keys)
+    local shorts
+
+    if type(beats) == "number" then
+        shorts = false
+    else
+        shorts = true
+    end
+
+    local shiftRequired, nonShift =
+        {},
+        {}
 
     local ctrlRequired =
         false
 
-    -- ============================================================
-    -- CTRL+
-    -- ============================================================
+    if keys:sub(1, 5) == "Ctrl+" then
 
-    if
-        keys:sub(1, 5)
-        == "Ctrl+"
-    then
-
-        ctrlRequired =
-            true
+        ctrlRequired = true
 
         keys =
             keys:sub(6)
@@ -639,7 +640,10 @@ local function pressKey(
     end
 
     -- ============================================================
-    -- PRESS EACH KEY
+    -- Separate Shift and no-Shift keys.
+    --
+    -- Lowercase letters always go into nonShift.
+    -- Uppercase letters and symbols go into shiftRequired.
     -- ============================================================
 
     for i = 1, #keys do
@@ -650,37 +654,282 @@ local function pressKey(
                 i
             )
 
-        task.spawn(function()
+        if table.find(
+            shiftKeys,
+            key
+        ) then
 
-            pressSingleKey(
-                key,
-                beats,
-                isShort,
-                ctrlRequired
+            table.insert(
+                shiftRequired,
+                key
             )
 
-        end)
+        else
 
-        -- Keep the original error-margin
-        -- timing behavior.
-        if
-            errormargin ~= 0
-            and math.random() < 0.5
-        then
-
-            task.wait(
-                math.random()
-                * errormargin
-                / 3
+            table.insert(
+                nonShift,
+                key
             )
 
         end
     end
-end
 
--- ================================================================
--- VELOCITY
--- ================================================================
+    -- ============================================================
+    -- PRESS NON-SHIFT KEYS
+    --
+    -- NO RANDOM SHIFT HERE.
+    --
+    -- d = D key
+    -- p = P key
+    -- l = L key
+    -- etc.
+    -- ============================================================
+
+    for _, key in ipairs(nonShift) do
+
+        coroutine.wrap(
+            function()
+
+                if ctrlRequired then
+
+                    VirtualInputManager:SendKeyEvent(
+                        true,
+                        Enum.KeyCode.LeftControl,
+                        false,
+                        game
+                    )
+
+                end
+
+                -- IMPORTANT:
+                -- lowercase key is pressed directly.
+                -- Shift is NOT pressed here.
+
+                VirtualInputManager:SendKeyEvent(
+                    true,
+                    keyMappings[key],
+                    false,
+                    game
+                )
+
+                if ctrlRequired then
+
+                    VirtualInputManager:SendKeyEvent(
+                        false,
+                        Enum.KeyCode.LeftControl,
+                        false,
+                        game
+                    )
+
+                end
+
+                local waittime
+                local randomOff
+
+                if shorts == false then
+
+                    local maxRan =
+                        (beats / bpm) * 60 / 2
+
+                    randomOff =
+                        math.random() * maxRan
+
+                    waittime =
+                        (beats / bpm) * 60
+                        - randomOff
+
+                else
+
+                    waittime =
+                        math.random(4, 12) / 100
+
+                end
+
+                task.wait(
+                    waittime
+                )
+
+                VirtualInputManager:SendKeyEvent(
+                    false,
+                    keyMappings[key],
+                    false,
+                    game
+                )
+
+            end
+        )()
+
+        -- Keep original error-margin timing.
+        -- This ONLY delays the next key.
+        -- It NEVER applies Shift.
+
+        if errormargin ~= 0 then
+
+            if math.random() < 0.5 then
+
+                task.wait(
+                    math.random()
+                    * errormargin
+                    / 3
+                )
+
+            end
+
+        end
+    end
+
+    -- ============================================================
+    -- PRESS SHIFT-REQUIRED KEYS
+    --
+    -- These are ONLY:
+    --
+    -- ! @ # $ % ^ & * ( )
+    -- Q W E R T Y U I O P
+    -- A S D F G H J K L
+    -- Z X C V B N M
+    --
+    -- Shift is pressed ONLY for these keys.
+    -- Shift is released immediately after the key-down event.
+    -- It is NEVER random.
+    -- It is NEVER left held.
+    -- ============================================================
+
+    if #shiftRequired > 0 then
+
+        for _, key in ipairs(shiftRequired) do
+
+            coroutine.wrap(
+                function()
+
+                    if ctrlRequired then
+
+                        VirtualInputManager:SendKeyEvent(
+                            true,
+                            Enum.KeyCode.LeftControl,
+                            false,
+                            game
+                        )
+
+                    end
+
+                    -- Press Shift because THIS CHARACTER
+                    -- explicitly requires Shift.
+
+                    VirtualInputManager:SendKeyEvent(
+                        true,
+                        Enum.KeyCode.LeftShift,
+                        false,
+                        game
+                    )
+
+                    -- Press actual key while Shift is down.
+
+                    VirtualInputManager:SendKeyEvent(
+                        true,
+                        keyMappings[key],
+                        false,
+                        game
+                    )
+
+                    -- IMPORTANT:
+                    -- Release the actual key normally.
+
+                    VirtualInputManager:SendKeyEvent(
+                        false,
+                        keyMappings[key],
+                        false,
+                        game
+                    )
+
+                    -- IMPORTANT:
+                    -- Release Shift immediately.
+                    --
+                    -- This means Shift can NEVER remain
+                    -- stuck after D/P/etc.
+
+                    VirtualInputManager:SendKeyEvent(
+                        false,
+                        Enum.KeyCode.LeftShift,
+                        false,
+                        game
+                    )
+
+                    if ctrlRequired then
+
+                        VirtualInputManager:SendKeyEvent(
+                            false,
+                            Enum.KeyCode.LeftControl,
+                            false,
+                            game
+                        )
+
+                    end
+
+                    local waittime
+                    local randomOff
+
+                    if shorts == false then
+
+                        local maxRan =
+                            (beats / bpm) * 60 / 2
+
+                        randomOff =
+                            math.random() * maxRan
+
+                        waittime =
+                            (beats / bpm) * 60
+                            - randomOff
+
+                    else
+
+                        waittime =
+                            math.random(4, 12) / 100
+
+                    end
+
+                    task.wait(
+                        waittime
+                    )
+
+                end
+            )()
+
+            if errormargin ~= 0 then
+
+                if math.random() < 0.5 then
+
+                    task.wait(
+                        math.random()
+                        * errormargin
+                        / 3
+                    )
+
+                end
+
+            end
+        end
+    end
+
+    if ctrlRequired then
+
+        VirtualInputManager:SendKeyEvent(
+            false,
+            Enum.KeyCode.LeftControl,
+            false,
+            game
+        )
+
+    end
+
+    if errormargin ~= 0 then
+
+        task.wait(
+            math.random()
+            * (errormargin * 2)
+        )
+
+    end
+end
 
 function adjustVelocity(vel)
 
@@ -693,21 +942,20 @@ function adjustVelocity(vel)
 
     vel =
         math.clamp(
-            tonumber(vel)
-                or 0.5,
+            vel,
             0,
             1
         )
 
-    local topress
-
     if vel < 0.27 then
 
-        topress = "2"
+        topress =
+            "2"
 
     elseif vel >= 0.88 then
 
-        topress = "c"
+        topress =
+            "c"
 
     else
 
@@ -718,13 +966,6 @@ function adjustVelocity(vel)
                 * (#velocityMap - 2)
             ) + 2
 
-        index =
-            math.clamp(
-                index,
-                1,
-                #velocityMap
-            )
-
         topress =
             velocityMap:sub(
                 index,
@@ -733,13 +974,6 @@ function adjustVelocity(vel)
 
     end
 
-    local keyCode =
-        keyMappings[topress]
-
-    if not keyCode then
-        return
-    end
-
     VirtualInputManager:SendKeyEvent(
         true,
         Enum.KeyCode.LeftAlt,
@@ -749,14 +983,7 @@ function adjustVelocity(vel)
 
     VirtualInputManager:SendKeyEvent(
         true,
-        keyCode,
-        false,
-        game
-    )
-
-    VirtualInputManager:SendKeyEvent(
-        false,
-        keyCode,
+        keyMappings[topress],
         false,
         game
     )
@@ -769,41 +996,7 @@ function adjustVelocity(vel)
     )
 end
 
--- ================================================================
--- SUSTAIN PEDAL
--- ================================================================
-
-function pedalDown()
-
-    if _G.STOPIT then
-        return
-    end
-
-    VirtualInputManager:SendKeyEvent(
-        true,
-        Enum.KeyCode.Space,
-        false,
-        game
-    )
-end
-
-function pedalUp()
-
-    if _G.STOPIT then
-        return
-    end
-
-    VirtualInputManager:SendKeyEvent(
-        false,
-        Enum.KeyCode.Space,
-        false,
-        game
-    )
-end
-
--- ================================================================
--- NOTE MAPPINGS
--- ================================================================
+-- note mappings to vp keys
 
 local noteMappings = {
 
@@ -905,15 +1098,13 @@ local noteMappings = {
     }
 }
 
--- ================================================================
--- PRESS NOTE
--- ================================================================
+-- press function
 
 function pressnote(
     note,
     octave,
     beats,
-    bpmValue
+    bpm
 )
 
     if _G.STOPIT then
@@ -921,71 +1112,57 @@ function pressnote(
     end
 
     if pausing then
-        -- Original loader behavior:
-        -- do not start while paused.
-        return
+        resumeEvent.Event:Wait()
     end
 
     local key =
         noteMappings[note]
-        and
-        noteMappings[note][octave]
+        and noteMappings[note][octave]
 
     if key then
 
-        task.spawn(function()
+        -- press it asynchronously
 
-            pressKey(
-                key,
-                beats,
-                false
-            )
+        coroutine.wrap(
+            function()
 
-        end)
+                pressKey(
+                    key,
+                    beats,
+                    bpm
+                )
+
+            end
+        )()
 
     else
 
         warn(
             "Invalid note or octave: "
             .. tostring(note)
-            .. " "
+            .. " octave "
             .. tostring(octave)
         )
 
     end
 end
 
--- ================================================================
--- REST
--- ================================================================
+-- REST FUNCTION
+-- REST FUNCTION
+-- REST FUNCTION
 
 function rest(
     beats,
-    bpmValue
+    bpm
 )
 
     if _G.STOPIT then
         return
     end
 
-    if pausing then
-        return
-    end
-
-    local safeBpm =
-        math.max(
-            tonumber(bpmValue)
-                or tonumber(bpm)
-                or 120,
-            1
-        )
-
     local waitTime =
-        (tonumber(beats) or 0)
-        / safeBpm
-        * 60
+        (beats / bpm) * 60
 
-    -- Keep original error-margin behavior.
     if errormargin == 0 then
 
         task.wait(
@@ -998,29 +1175,23 @@ function rest(
             (
                 math.random() * 1.6 - 1
             )
-            * (
-                errormargin / 2
-            )
+            * (errormargin / 2)
 
-        task.wait(
-            math.max(
-                0,
-                waitTime
-                + randomOffset
-            )
+        wait(
+            waitTime + randomOffset
         )
 
     end
 end
 
--- ================================================================
--- KEYPRESS
--- ================================================================
+-- KEYPRESS FUNCTION
+-- KEYPRESS FUNCTION
+-- KEYPRESS FUNCTION
 
 function keypress(
     keys,
     beats,
-    bpmValue
+    bpm
 )
 
     if _G.STOPIT then
@@ -1028,28 +1199,34 @@ function keypress(
     end
 
     if pausing then
-        return
+
+        resumeEvent.Event:Wait()
+
+    else
+
     end
 
-    task.spawn(function()
+    coroutine.wrap(
+        function()
 
-        pressKey(
-            keys,
-            beats,
-            type(beats) ~= "number"
-        )
+            pressKey(
+                keys,
+                beats,
+                bpm
+            )
 
-    end)
+        end
+    )()
 end
 
--- ================================================================
--- KEY SEQUENCE 16
--- ================================================================
+-- KEYSEQUENCE16 FUNCTION
+-- KEYSEQUENCE16 FUNCTION
+-- KEYSEQUENCE16 FUNCTION
 
 function keysequence16(
     keys,
     beats,
-    bpmValue
+    bpm
 )
 
     if _G.STOPIT then
@@ -1057,121 +1234,67 @@ function keysequence16(
     end
 
     if pausing then
-        return
+
+        resumeEvent.Event:Wait()
+
+    else
+
     end
 
-    task.spawn(function()
+    coroutine.wrap(
+        function()
 
-        for i = 1, #keys do
+            for i = 1, #keys do
 
-            if _G.STOPIT then
-                return
-            end
+                local key =
+                    keys:sub(
+                        i,
+                        i
+                    )
 
-            local key =
-                keys:sub(
-                    i,
-                    i
+                keypress(
+                    key,
+                    beats,
+                    bpm
                 )
 
-            keypress(
-                key,
-                beats,
-                bpmValue
-            )
+                rest(
+                    0.25,
+                    bpm
+                )
 
-            rest(
-                0.25,
-                bpmValue
-            )
+            end
 
         end
-
-    end)
+    )()
 end
 
--- ================================================================
--- FINISHED SONG
--- ================================================================
-
-function finishedSong()
+function pedalDown()
 
     if _G.STOPIT then
         return
     end
 
-    songPlaying =
-        false
-
-    pausing =
-        false
-
-    releaseAllInputs()
-
-    playSound(
-        "6493287948",
-        0.1
+    VirtualInputManager:SendKeyEvent(
+        true,
+        Enum.KeyCode.Space,
+        false,
+        game
     )
 
-    NotificationLibrary:SendNotification(
-        "Success",
-        "Your song has finished.",
-        3
-    )
 end
 
--- ================================================================
--- STOP
--- ================================================================
+function pedalUp()
 
-function stopPlayingSongs()
-
-    _G.STOPIT =
-        true
-
-    songPlaying =
-        false
-
-    pausing =
-        false
-
-    releaseAllInputs()
-
-    NotificationLibrary:SendNotification(
-        "Success",
-        "Stopping...",
-        1
-    )
-end
-
--- ================================================================
--- CHARACTER SAFETY
--- ================================================================
-
-LocalPlayer.CharacterRemoving:Connect(
-    function()
-        releaseAllInputs()
+    if _G.STOPIT then
+        return
     end
-)
 
--- ================================================================
--- FINAL STATE
--- ================================================================
+    VirtualInputManager:SendKeyEvent(
+        false,
+        Enum.KeyCode.Space,
+        false,
+        game
+    )
 
-songPlaying =
-    true
-
-pausing =
-    false
-
-print(
-    "MIDI2LUA loader ready."
-)
-
-print(
-    "Random Shift: DISABLED"
-)
-
-print(
-    "Repeated-key protection: ENABLED"
-)
+end
