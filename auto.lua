@@ -66,6 +66,7 @@ if _G.__AP_ENGINE_STOP then pcall(_G.__AP_ENGINE_STOP) end
 _G.STOPIT = false
 _G.songisplaying = true
 _G.SEEK_SECONDS = 0
+_G.SEEK_TO = nil -- tua tới vị trí tuyệt đối (giây), dùng cho thanh kéo
 _G.AP_END = nil
 x = "hi" -- short-note convention
 bpm = bpm or 120
@@ -124,7 +125,7 @@ for i = 1, 10 do
 end
 for c in ("abcdefghijklmnopqrstuvwxyz"):gmatch(".") do
     keyMap[c] = { KC[c:upper()], false }
-    keyMap[c:upper()] = { KC[c:upper()], true }
+    keyMap[c:upper()] = { KC[c:upper()], false } -- chữ hoa: nhấn thẳng phím, KHÔNG kèm Shift
 end
 keyMap[" "] = { KC.Space, false }
 
@@ -259,7 +260,7 @@ local function buildPanel()
 
     local frame = newObj("Frame", {
         Name = "Panel",
-        Size = UDim2.new(0, 260, 0, 96),
+        Size = UDim2.new(0, 260, 0, 122),
         Position = UDim2.new(0.5, -130, 0, 24),
         BackgroundColor3 = BG,
         BorderSizePixel = 0,
@@ -291,7 +292,7 @@ local function buildPanel()
 
     local function button(text, i, cb)
         local b = newObj("TextButton", {
-            Position = UDim2.new(0, 9 + (i - 1) * 62, 0, 52),
+            Position = UDim2.new(0, 9 + (i - 1) * 62, 0, 80),
             Size = UDim2.new(0, 56, 0, 32),
             BackgroundColor3 = BTN,
             BorderSizePixel = 0,
@@ -321,7 +322,7 @@ local function buildPanel()
         return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
     end
     table.insert(S.conns, frame.InputBegan:Connect(function(input)
-        if isPointer(input) then
+        if isPointer(input) and not S.sliding then
             dragging, dragStart, startPos = true, input.Position, frame.Position
         end
     end))
@@ -335,6 +336,76 @@ local function buildPanel()
     end))
     table.insert(S.conns, UserInputService.InputEnded:Connect(function(input)
         if isPointer(input) then dragging = false end
+    end))
+
+    ----------------------------------------------------------------
+    -- Thanh kéo tua: kéo tới đâu, thả ra thì nhảy tới đó
+    ----------------------------------------------------------------
+    local hit = newObj("TextButton", {
+        Position = UDim2.new(0, 12, 0, 38),
+        Size = UDim2.new(1, -24, 0, 28),
+        BackgroundTransparency = 1,
+        Text = "",
+        AutoButtonColor = false,
+    }, frame)
+    local track = newObj("Frame", {
+        Position = UDim2.new(0, 0, 0.5, -3),
+        Size = UDim2.new(1, 0, 0, 6),
+        BackgroundColor3 = BTN,
+        BorderSizePixel = 0,
+    }, hit)
+    newObj("UICorner", { CornerRadius = UDim.new(0, 3) }, track)
+    local fill = newObj("Frame", {
+        Size = UDim2.new(0, 0, 1, 0),
+        BackgroundColor3 = ACCENT,
+        BorderSizePixel = 0,
+    }, track)
+    newObj("UICorner", { CornerRadius = UDim.new(0, 3) }, fill)
+    local knob = newObj("Frame", {
+        Size = UDim2.new(0, 14, 0, 14),
+        Position = UDim2.new(0, -7, 0.5, -7),
+        BackgroundColor3 = ACCENT,
+        BorderSizePixel = 0,
+    }, track)
+    newObj("UICorner", { CornerRadius = UDim.new(1, 0) }, knob)
+
+    S.setSlider = function(ratio)
+        ratio = math.clamp(ratio, 0, 1)
+        fill.Size = UDim2.new(ratio, 0, 1, 0)
+        knob.Position = UDim2.new(ratio, -7, 0.5, -7)
+    end
+
+    local function ratioFromInput(input)
+        local w = hit.AbsoluteSize.X
+        if w <= 0 then return 0 end
+        return math.clamp((input.Position.X - hit.AbsolutePosition.X) / w, 0, 1)
+    end
+    local function preview(ratio)
+        S.slideRatio = ratio
+        S.setSlider(ratio)
+        if S.timeLabel then
+            S.timeLabel.Text = fmtTime(ratio * S.total) .. " / " .. fmtTime(S.total)
+        end
+    end
+
+    table.insert(S.conns, hit.InputBegan:Connect(function(input)
+        if isPointer(input) then
+            S.sliding = true
+            dragging = false -- không kéo cả panel khi đang kéo thanh
+            preview(ratioFromInput(input))
+        end
+    end))
+    table.insert(S.conns, UserInputService.InputChanged:Connect(function(input)
+        if S.sliding and (input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch) then
+            preview(ratioFromInput(input))
+        end
+    end))
+    table.insert(S.conns, UserInputService.InputEnded:Connect(function(input)
+        if S.sliding and isPointer(input) then
+            S.sliding = false
+            _G.SEEK_TO = (S.slideRatio or 0) * S.total
+        end
     end))
 end
 
@@ -416,9 +487,11 @@ local function startPlayback()
             if dt > 0.5 then dt = 0.5 end
 
             local sk = tonumber(_G.SEEK_SECONDS) or 0
-            if sk ~= 0 then
+            local st = tonumber(_G.SEEK_TO)
+            if sk ~= 0 or st then
                 _G.SEEK_SECONDS = 0
-                S.pos = math.min(math.max(0, S.pos + sk), S.total)
+                _G.SEEK_TO = nil
+                S.pos = math.min(math.max(0, (st or S.pos) + sk), S.total)
                 idx = 1
                 while idx <= n and ev[idx].t < S.pos do idx = idx + 1 end
                 releaseAll()
@@ -436,10 +509,11 @@ local function startPlayback()
                 idx = idx + 1
             end
 
-            if S.timeLabel and now - lastLabel > 0.2 then
+            if S.timeLabel and not S.sliding and now - lastLabel > 0.1 then
                 lastLabel = now
                 pcall(function()
                     S.timeLabel.Text = fmtTime(math.min(S.pos, S.total)) .. " / " .. fmtTime(S.total)
+                    if S.setSlider and S.total > 0 then S.setSlider(S.pos / S.total) end
                 end)
             end
 
@@ -675,8 +749,7 @@ local function loadCustomSongs()
                                 if b then bpmHeader = b end
                                 if not line:match("^%-%-") then break end
                             end
-                            local tags = { "custom" }
-                            for _, c in ipairs(cats) do tags[#tags + 1] = c end
+                            local tags = (#cats > 0) and cats or { "custom" }
                             addSong({ name = name, url = name, path = path, custom = true,
                                 bpm = bpmHeader or "120", cat = tags })
                         end
@@ -907,6 +980,11 @@ buildCats = function()
     end
     table.sort(list)
     table.insert(list, 1, "All")
+    local stillThere = false
+    for _, name in ipairs(list) do
+        if name:lower() == selectedCat:lower() then stillThere = true end
+    end
+    if not stillThere then selectedCat = "All" end
     for _, name in ipairs(list) do
         local active = (name:lower() == selectedCat:lower())
         local chip = new("TextButton", {
@@ -939,6 +1017,37 @@ local function rebuildAll()
     for _, s in ipairs(songs) do makeSongButton(s) end
     buildCats()
     refreshList()
+end
+
+local function deleteSong(s)
+    if type(delfile) ~= "function" then
+        notify("Error", "Executor has no delfile support", 3)
+        return
+    end
+    local ok, err = pcall(delfile, s.path)
+    if not ok then
+        warn("[AutoPiano] delete failed: " .. tostring(err))
+        notify("Error", "Could not delete song", 3)
+        return
+    end
+    -- gỡ khỏi _categories.txt cùng thư mục
+    local dir = tostring(s.path):match("^(.*)[/\\][^/\\]+$")
+    if dir and type(isfile) == "function" then
+        local cp = dir .. "/_categories.txt"
+        if isfile(cp) then
+            pcall(function()
+                local lines = {}
+                for line in tostring(readfile(cp)):gmatch("[^\r\n]+") do
+                    local n = line:match("^(.-)|")
+                    if n ~= s.name then lines[#lines + 1] = line end
+                end
+                writefile(cp, table.concat(lines, "\n"))
+            end)
+        end
+    end
+    nameLabel.Text = "No song selected"
+    rebuildAll()
+    notify("Success", "Deleted: " .. s.name, 3)
 end
 
 local function buildUI()
@@ -1062,12 +1171,13 @@ local function buildUI()
 
     local function small(text, i, cb)
         local b = new("TextButton", {
-            Position = UDim2.new((i - 1) / 3, (i - 1) * 2, 0, 46), Size = UDim2.new(1 / 3, -6, 0, 30),
+            Position = UDim2.new((i - 1) / 4, (i - 1) * 2, 0, 46), Size = UDim2.new(1 / 4, -6, 0, 30),
             BackgroundColor3 = C.item, BorderSizePixel = 0, Text = text,
             Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = C.text,
         }, bar)
         corner(b, 8)
         b.Activated:Connect(cb)
+        return b
     end
     small("Shuffle", 1, function()
         if shuffleOn then return end
@@ -1090,6 +1200,34 @@ local function buildUI()
         end
     end)
 
+    -- Delete: bấm 2 lần (xác nhận) để xoá bài custom đang chọn
+    local deleteBtn, armedSong
+    deleteBtn = small("Delete", 4, function()
+        local sel
+        for _, s in ipairs(songs) do
+            if s.var == true then sel = s break end
+        end
+        if not sel then notify("Error", "Select a song first", 3) return end
+        if not sel.custom then
+            notify("Error", "Only custom songs can be deleted", 3)
+            return
+        end
+        if armedSong ~= sel then
+            armedSong = sel
+            deleteBtn.Text = "Confirm?"
+            task.delay(3, function()
+                if armedSong == sel then
+                    armedSong = nil
+                    deleteBtn.Text = "Delete"
+                end
+            end)
+            return
+        end
+        armedSong = nil
+        deleteBtn.Text = "Delete"
+        deleteSong(sel)
+    end)
+
     close.Activated:Connect(function() _G.__AP_UI_DESTROY() end)
 end
 
@@ -1098,6 +1236,18 @@ _G.__AP_UI_DESTROY = function()
     shuffleOn = false
     if gui then pcall(function() gui:Destroy() end) end
     gui = nil
+end
+_G.AP_GetCategories = function()
+    local set, list = { custom = true }, {}
+    for _, s in ipairs(songs) do
+        for _, c in ipairs(s.cat) do
+            local k = c:lower()
+            if not set[k] then set[k] = true; list[#list + 1] = k end
+        end
+    end
+    table.sort(list)
+    table.insert(list, 1, "custom")
+    return list
 end
 _G.AP_RefreshSongs = function()
     if gui then rebuildAll() end
