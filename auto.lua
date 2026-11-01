@@ -1,17 +1,16 @@
 
--- Self-contained notification (no dependency on hellohellohell library)
-local function createNotifLib()
+local NotificationLibrary =
+    (function()
     local ok, lib = pcall(function()
         return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/notif_lib.lua", true))()
     end)
     if ok and lib then return lib end
-    return {
-        SendNotification = function(_, title, text)
-            print("[Notif]", title, text)
-        end
-    }
-end
-local NotificationLibrary = createNotifLib()
+    ok, lib = pcall(function()
+        return loadstring(game:HttpGet("https://hellohellohell0.com/talentless-raw/notif_lib.lua", true))()
+    end)
+    if ok and lib then return lib end
+    return { SendNotification = function(_, title, text) print("[Notif]", title, text) end }
+end)()
 
 local function playSound(soundId, loudness)
     local sound = Instance.new("Sound")
@@ -1133,17 +1132,31 @@ function playbuttonclicked()
         return
     end
 
-    -- Must select a song first
-    local hasSelection = false
+    local selected = nil
     for _, song in pairs(songs) do
         if song.var == true then
-            hasSelection = true
+            selected = song
             break
         end
     end
-    if not hasSelection then
+    if not selected then
         playSound("6493287948", 0.1)
         NotificationLibrary:SendNotification("Error", "Select a song first.", 2)
+        return
+    end
+
+    -- Fetch song script FIRST from the real host (GitHub has no song files)
+    local songscript = nil
+    local okFetch, fetchResult = pcall(function()
+        return game:HttpGet("https://hellohellohell0.com/talentless-raw/SONGS/" .. selected.url, true)
+    end)
+    if okFetch and type(fetchResult) == "string" and #fetchResult > 10 then
+        songscript = fetchResult
+    end
+    if not songscript then
+        playSound("6493287948", 0.1)
+        NotificationLibrary:SendNotification("Error", "Failed to download song: " .. tostring(selected.url), 3)
+        warn("[AutoPiano] Song fetch failed:", selected.url, fetchResult)
         return
     end
 
@@ -1151,76 +1164,30 @@ function playbuttonclicked()
     _G.songisplaying = true
     _G.STOPIT = false
 
-    -- Original loader expects language table
     if not _G.languages then
-        _G.languages = {
-            ["en"] = true, ["pt-BR"] = false, ["es"] = false, ["ru"] = false,
-            ["zh-CN"] = false, ["id"] = false, ["fil"] = false, ["vi"] = false,
-            ["fr"] = false, ["de"] = false, ["ja"] = false, ["ko"] = false,
-            ["tr"] = false, ["ar"] = false
-        }
+        _G.languages = {["en"]=true,["pt-BR"]=false,["es"]=false,["ru"]=false,["zh-CN"]=false,["id"]=false,["fil"]=false,["vi"]=false,["fr"]=false,["de"]=false,["ja"]=false,["ko"]=false,["tr"]=false,["ar"]=false}
     end
     _G.talentlessSettings = _G.talentlessSettings or {}
 
-    local songscript = false
-    local selectedName = nil
-
-    -- Fetch song data (same host as original Talentless)
-    task.spawn(function()
-        for _, song in pairs(songs) do
-            if song.var == true then
-                selectedName = (song.button and song.button.Text) or song.url
-                local ok, result = pcall(function()
-                    return game:HttpGet("https://hellohellohell0.com/talentless-raw/SONGS/" .. song.url, true)
-                end)
-                if ok and type(result) == "string" and #result > 10 then
-                    songscript = result
-                else
-                    warn("[AutoPiano] Failed to fetch song:", song.url, result)
-                    songscript = nil
-                end
-                break
-            end
-        end
-        if songscript == false then
-            songscript = nil
-        end
-    end)
-
-    -- Use ORIGINAL working loader (stable note engine + control UI)
+    -- Load control UI + keypress/rest/finishedSong
     local okLoader, errLoader = pcall(function()
-        loadstring(game:HttpGet("https://hellohellohell0.com/talentless-raw/loader_main.lua", true))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/loader_main.lua", true))()
     end)
     if not okLoader then
-        warn("[AutoPiano] Original loader failed, trying custom:", errLoader)
+        warn("[AutoPiano] GitHub loader failed:", errLoader)
         okLoader, errLoader = pcall(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/loader_main.lua", true))()
+            loadstring(game:HttpGet("https://hellohellohell0.com/talentless-raw/loader_main.lua", true))()
         end)
     end
     if not okLoader then
         songisplaying = false
         _G.songisplaying = false
-        NotificationLibrary:SendNotification("Error", "Loader failed.", 3)
+        NotificationLibrary:SendNotification("Error", "Loader failed to start.", 3)
         warn("[AutoPiano] Loader error:", errLoader)
         return
     end
 
-    -- Wait until song data is ready (max ~15s)
-    local waited = 0
-    while songscript == false and waited < 15 do
-        task.wait(0.1)
-        waited = waited + 0.1
-    end
-
-    if type(songscript) ~= "string" or #songscript < 10 then
-        songisplaying = false
-        _G.songisplaying = false
-        _G.STOPIT = true
-        playSound("6493287948", 0.1)
-        NotificationLibrary:SendNotification("Error", "Could not load song file.", 3)
-        return
-    end
-
+    -- Execute song (calls global keypress/rest defined by loader)
     local okSong, errSong = pcall(function()
         loadstring(songscript)()
     end)
@@ -1233,14 +1200,8 @@ function playbuttonclicked()
         return
     end
 
-    print("[AutoPiano] Playing:", selectedName or "song")
-    -- Block until stopped/finished (same as original)
-    while not _G.STOPIT do
-        task.wait(0.2)
-    end
-    songisplaying = false
-    _G.songisplaying = false
-end
+    print("[AutoPiano] Playing:", selected.button and selected.button.Text or selected.url)
+end -- close the play song onclick function
 
 playsong.MouseButton1Click:Connect(playbuttonclicked)
 
@@ -1487,100 +1448,136 @@ NEWSONGBUTTON = newSongButton("+", 30, {""})
 NEWSONGBUTTON.Visible = false
 print("loaded NEWSONGBUTTON")
 
-NEWSONGBUTTON.MouseButton1Click:Connect(function()
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/add_song.lua", true))()
-end)
+NEWSONGBUTTON.MouseButton1Click:Connect(
+    function()
+        loadstring(
+            game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/add_song.lua", true)
+        )()
+    end
+)
 
 table.insert(customsongs, NEWSONGBUTTON)
 local addedCustoms = {}
-local customSongMeta = {} -- filepath -> {name, cat, bpm, frame}
 
--- Custom songs folder: AUTOPIANO_CUSTOM_SONGS (also supports old TALENTLESS name)
+-- function for listing songs in your custom songs folder. this runs at the end so if ur exec doesnt support it, the script wont die.
+
 function updateSongs()
-    local foldersToCheck = {"AUTOPIANO_CUSTOM_SONGS", "TALENTLESS_CUSTOM_SONGS"}
-    folderexists = false
+    local alreadyAdded
 
-    for _, fname in ipairs(foldersToCheck) do
-        pcall(function()
-            if isfolder(fname) then
+    for _, file in ipairs(listfiles("")) do
+        print(tostring(file))
+        if folderexists == false then
+            if string.find(tostring(file), "TALENTLESS_CUSTOM_SONGS") then
                 folderexists = true
-                print("custom songs folder found:", fname)
+                print("custom songs folder found")
+            end
+        end
+    end
 
-                for _, custom in ipairs(listfiles("./" .. fname)) do
-                    local filepath = tostring(custom)
-                    if filepath:match("%.txt$") and not filepath:match("_categories") and not table.find(addedCustoms, filepath) then
-                        table.insert(addedCustoms, filepath)
-                        local tsongname = filepath:gsub([[\]], "/"):match(".*/([^/]+)%.txt$") or "Error"
-                        local content = readfile(custom)
-                        local songbpm = content:match("bpm%s*=%s*(%d+)") or "120"
-                        local songCat = content:match("%-%-CAT:(%S+)") or "custom"
+    print("searching for custom song files...")
 
-                        local hello = newCustomSongButton(tsongname)
-                        local songbutton = hello.button
-                        local delsongbutton = hello.delbutton
-                        local songframe = hello.frame
-                        table.insert(customsongs, songframe)
-                        songbutton.Visible = true
+    if folderexists then
+        for _, custom in ipairs(listfiles([[./TALENTLESS_CUSTOM_SONGS]])) do
+            alreadyAdded = false
 
-                        customSongMeta[filepath] = {
-                            name = tsongname,
-                            cat = songCat,
-                            bpm = songbpm,
-                            frame = songframe,
-                            button = songbutton
-                        }
+            print("song file found: " .. tostring(custom))
 
-                        songbutton.MouseButton1Click:Connect(function()
+            local filepath = tostring(custom) -- converts it into the format /TALENTLESS_CUSTOM_SONGS\example.txt
+
+            if not table.find(addedCustoms, filepath) then
+                if filepath:match("%.txt$") then -- if it has .txt at the end
+                    print("its a txt file, continuing")
+
+                    table.insert(addedCustoms, filepath) -- add the file to the addedCustoms table
+                    local tsongname = filepath:gsub([[\]], "/"):match(".*/([^/]+)%.txt$") or "Error" -- remove the /, \, and .txt
+                    print("song name: " .. tsongname)
+
+                    local hello = newCustomSongButton(tsongname) -- make the song button
+                    local songbutton = hello.button -- get the button
+                    local delsongbutton = hello.delbutton
+                    local songframe = hello.frame -- get the frame
+                    table.insert(customsongs, songframe)
+                    songbutton.Visible = false
+
+                    print("created song button for " .. tsongname)
+
+                    local songbpm = readfile(custom):match("bpm%s*=%s*(%d+)") or "Error" -- read the file and look for the string after bpm =
+                    print("songbpm found: " .. songbpm)
+
+                    songbutton.Visible = true
+
+                    songbutton.MouseButton1Click:Connect(
+                        function()
+                            print("clicked!")
+
                             if songisplaying then
                                 playSound("6493287948", 0.1)
                                 NotificationLibrary:SendNotification("Error", "A song is already playing.", 1)
                                 return
-                            end
-                            local songcode = readfile(custom)
-                            local func, err = loadstring(songcode)
-                            if func then
-                                songname.Text = tsongname
-                                bpmbox.Text = songbpm
-                                playSound("6493287948", 0.1)
-                                NotificationLibrary:SendNotification("Success", "Began playing song.", 1)
-                                songisplaying = true
-                                func()
                             else
-                                playSound("6493287948", 0.1)
-                                NotificationLibrary:SendNotification("Error", "Your song script is broken.", 5)
-                            end
-                        end)
+                                local songcode = readfile(custom) -- define the contents of the song file
+                                local func, err = loadstring(songcode) -- load it
 
-                        -- Delete on double-click
-                        local clickTime = 0.5
-                        local lastClick = 0
-                        delsongbutton.MouseButton1Click:Connect(function()
+                                if func then
+                                    print("running scrip....")
+                                    songname.Text = tsongname
+                                    bpmbox.Text = songbpm
+                                    playSound("6493287948", 0.1)
+                                    NotificationLibrary:SendNotification("Success", "Began playing song.", 1)
+                                    songisplaying = true
+                                    func()
+                                else
+                                    print("invalid script")
+                                    playSound("6493287948", 0.1)
+                                    NotificationLibrary:SendNotification(
+                                        "Error",
+                                        "Your song script is broken. If confused, contact support in the discord.",
+                                        5
+                                    )
+                                end
+                            end
+                        end
+                    )
+
+                    -- Initialize variables outside the event handler
+                    local clickTime = 0.5
+                    local lastClick = 0
+
+                    -- Create a single event connection
+                    delsongbutton.MouseButton1Click:Connect(
+                        function()
                             local now = tick()
                             if now - lastClick <= clickTime then
-                                pcall(function() delfile(filepath) end)
+                                -- Double-click detected
+                                print("Double-click detected. Deleting song...")
+                                delfile(filepath) -- Delete the file
                                 songframe:Destroy()
-                                local idx = table.find(customsongs, songframe)
-                                if idx then table.remove(customsongs, idx) end
-                                local aidx = table.find(addedCustoms, filepath)
-                                if aidx then table.remove(addedCustoms, aidx) end
-                                customSongMeta[filepath] = nil
+                                table.remove(customsongs, table.find(customsongs, songbutton))
+                                table.remove(addedCustoms, table.find(addedCustoms, filepath))
                                 updatecustomcount()
                                 playSound("6493287948", 0.1)
-                                NotificationLibrary:SendNotification("Success", "Song deleted.", 3)
+                                NotificationLibrary:SendNotification("Success", "Your song has been deleted.", 5)
                             else
+                                -- Single-click detected
+                                print("Single-click detected. Showing notification...")
                                 playSound("6493287948", 0.1)
-                                NotificationLibrary:SendNotification("Info", "Double-click to delete the song.", 2)
+                                NotificationLibrary:SendNotification("Info", "Double-click to delete the song.", 3)
                             end
-                            lastClick = now
-                        end)
+                            lastClick = now -- Update the last click time
+                        end
+                    )
 
-                        updatecustomcount()
-                    end -- if txt match
-                end -- for custom files
-            end -- if isfolder
-        end) -- pcall
-    end -- for folders
-end -- end updatesongs
+                    updatecustomcount()
+                else -- if yes table.find
+                    print("song already added, skipping")
+                end
+            else    
+                print("its not a txt, skipping")
+            end
+        end
+    else
+    end -- ends if folderexists
+end -- end updatesongs func
 
 for _, songbutton in ipairs(scroll:GetChildren()) do
     if songbutton:IsA("TextButton") then
