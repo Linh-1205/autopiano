@@ -1120,7 +1120,7 @@ disable()
 songisplaying = false
 
 function playbuttonclicked()
-    if songisplaying then
+    if songisplaying or _G.songisplaying then
         playSound("6493287948", 0.1)
         NotificationLibrary:SendNotification("Error", "A song is already playing.", 1)
         return
@@ -1133,47 +1133,69 @@ function playbuttonclicked()
         return
     end
 
-    songisplaying = true
-
+    -- Find selected song first (before loader)
     local songscript = nil
     local songFound = false
+    local selectedName = nil
 
     for _, song in pairs(songs) do
         if not songFound and song.var == true then
+            selectedName = song.button and song.button.Text or song.url
             local ok, result = pcall(function()
                 return game:HttpGet("https://hellohellohell0.com/talentless-raw/SONGS/" .. song.url, true)
             end)
             if ok and result and type(result) == "string" and #result > 10 then
                 songscript = result
                 songFound = true
+            else
+                warn("[AutoPiano] HttpGet failed for", song.url, tostring(result))
             end
         end
     end
 
     if not songFound or not songscript then
-        songisplaying = false
         playSound("6493287948", 0.1)
-        NotificationLibrary:SendNotification("Error", "Failed to load song data.", 3)
+        NotificationLibrary:SendNotification("Error", "Failed to load song data. Select a song first.", 3)
         return
     end
 
-    local okLoader = pcall(function()
+    songisplaying = true
+    _G.songisplaying = true
+    _G.STOPIT = false
+    _G.SEEK_SECONDS = 0
+
+    -- Load control UI + keypress/rest API
+    local okLoader, errLoader = pcall(function()
         loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/loader_main.lua", true))()
     end)
     if not okLoader then
-        pcall(function()
+        warn("[AutoPiano] Custom loader failed:", errLoader)
+        okLoader, errLoader = pcall(function()
             loadstring(game:HttpGet("https://hellohellohell0.com/talentless-raw/loader_main.lua", true))()
         end)
     end
+    if not okLoader then
+        songisplaying = false
+        _G.songisplaying = false
+        NotificationLibrary:SendNotification("Error", "Loader failed to start.", 3)
+        warn("[AutoPiano] Loader error:", errLoader)
+        return
+    end
 
+    -- Run song script (queues notes; loader plays them)
     local okSong, errSong = pcall(function()
         loadstring(songscript)()
     end)
     if not okSong then
         songisplaying = false
+        _G.songisplaying = false
+        _G.STOPIT = true
         NotificationLibrary:SendNotification("Error", "Song script error.", 3)
         warn("[AutoPiano] Song error:", errSong)
+        return
     end
+
+    print("[AutoPiano] Queued song:", selectedName or "unknown")
 end
 
 playsong.MouseButton1Click:Connect(playbuttonclicked)
