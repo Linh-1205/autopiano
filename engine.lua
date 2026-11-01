@@ -81,7 +81,7 @@ for i = 1, 10 do
 end
 for c in ("abcdefghijklmnopqrstuvwxyz"):gmatch(".") do
     keyMap[c] = { KC[c:upper()], false }
-    keyMap[c:upper()] = { KC[c:upper()], false } -- chữ hoa: nhấn thẳng phím, KHÔNG kèm Shift
+    keyMap[c:upper()] = { KC[c:upper()], true } -- chữ hoa = Shift + phím
 end
 keyMap[" "] = { KC.Space, false }
 
