@@ -26,14 +26,13 @@ local function playSound(soundId, loudness)
     sound:Play()
 end
 
--- Default categories (same as main)
+-- Default categories
 local defaultCategories = {
     "custom", "peak", "best", "epic", "beautiful",
     "video games", "memes", "classical", "anime/jpop",
     "pop/hiphop", "sad", "electronic", "rock"
 }
 
--- Load extra user categories if any
 local userCats = {}
 pcall(function()
     if isfile and isfile("AUTOPIANO_CUSTOM_SONGS/_categories.txt") then
@@ -99,7 +98,7 @@ cancelButton.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
 cancelButton.Position = UDim2.new(1, -10, 0, 10)
 cancelButton.Size = UDim2.new(0, 28, 0, 28)
 cancelButton.Font = Enum.Font.GothamBold
-cancelButton.Text = "✕"
+cancelButton.Text = "X"
 cancelButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 cancelButton.TextSize = 14
 Instance.new("UICorner", cancelButton).CornerRadius = UDim.new(0, 6)
@@ -138,7 +137,6 @@ insertsongName.TextSize = 15
 insertsongName.ClearTextOnFocus = false
 Instance.new("UICorner", insertsongName).CornerRadius = UDim.new(0, 8)
 
--- Category label
 local catLabel = Instance.new("TextLabel")
 catLabel.Parent = newsongframe
 catLabel.BackgroundTransparency = 1
@@ -150,7 +148,6 @@ catLabel.TextColor3 = Color3.fromRGB(180, 180, 190)
 catLabel.TextSize = 13
 catLabel.TextXAlignment = Enum.TextXAlignment.Left
 
--- Category dropdown (simple scroll of buttons)
 local catScroll = Instance.new("ScrollingFrame")
 catScroll.Parent = newsongframe
 catScroll.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
@@ -191,7 +188,6 @@ local function refreshCatButtons()
 end
 refreshCatButtons()
 
--- New category input
 local newCatBox = Instance.new("TextBox")
 newCatBox.Parent = newsongframe
 newCatBox.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
@@ -232,7 +228,6 @@ addCatBtn.MouseButton1Click:Connect(function()
     seen[name] = true
     table.insert(allCats, name)
     selectedCat = name
-    -- persist
     pcall(function()
         if not isfolder("AUTOPIANO_CUSTOM_SONGS") then makefolder("AUTOPIANO_CUSTOM_SONGS") end
         local existing = ""
@@ -323,7 +318,6 @@ submitSong.MouseButton1Click:Connect(function()
     end
 
     if not songexists then
-        -- Prepend category marker so main script can read it
         local finalScript = "--CAT:" .. selectedCat .. "\n" .. scriptInput
         writefile("AUTOPIANO_CUSTOM_SONGS/" .. songName .. ".txt", finalScript)
         playSound("6493287948", 0.1)

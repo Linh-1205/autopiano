@@ -1,6 +1,12 @@
+--[[
+  AutoPiano - Entry point
+  UI + orchestration + embedded engine
+  Spec: independent, no Talentless library dependency
+  Sheet data only from: https://hellohellohell0.com/talentless-raw/SONGS/{url}
+]]
 
-local NotificationLibrary =
-    (function()
+-- ========== Notification ==========
+local NotificationLibrary = (function()
     local ok, lib = pcall(function()
         return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/notif_lib.lua", true))()
     end)
@@ -13,1149 +19,857 @@ local NotificationLibrary =
 end)()
 
 local function playSound(soundId, loudness)
-    local sound = Instance.new("Sound")
-    sound.SoundId = "rbxassetid://" .. soundId
-    sound.Parent = game.Players.LocalPlayer.Character or game.Players.LocalPlayer
-    sound.Volume = loudness or 1
-    sound:Play()
+    pcall(function()
+        local sound = Instance.new("Sound")
+        sound.SoundId = "rbxassetid://" .. tostring(soundId)
+        sound.Parent = game.Players.LocalPlayer.Character or game.Players.LocalPlayer
+        sound.Volume = loudness or 0.15
+        sound:Play()
+        game:GetService("Debris"):AddItem(sound, 3)
+    end)
 end
 
--- Gui to Lua
--- Version: 3.2
+-- ========== Embed engine source ==========
+-- Prefer local embed; fallback HttpGet if embed empty
+_G.__AP_ENGINE_SRC = [=[
+--[[
+  AutoPiano Engine - self-contained note player
+  No external libraries. Defines: keypress, rest, finishedSong, pressnote, etc.
+]]
 
--- Instances:
+_G.STOPIT = false
+_G.songisplaying = true
+_G.SEEK_SECONDS = 0
+
+local Players = game:GetService("Players")
+local VIM = game:GetService("VirtualInputManager")
+local CoreGui = game:GetService("CoreGui")
+local UIS = game:GetService("UserInputService")
+local LP = Players.LocalPlayer
+
+x = "hi" -- song scripts pass this as beats (short notes)
+if type(bpm) ~= "number" or bpm <= 0 then
+    bpm = 120
+end
+errormargin = errormargin or 0
+pausing = false
+
+local resumeEvent = Instance.new("BindableEvent")
+
+-- minimal notif (self-drawn, no external lib required)
+local function notify(title, text, dur)
+    dur = dur or 2
+    local ok = pcall(function()
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "APNotif"
+        sg.ResetOnSpawn = false
+        sg.Parent = CoreGui
+        local f = Instance.new("Frame")
+        f.Size = UDim2.new(0, 280, 0, 56)
+        f.Position = UDim2.new(1, -300, 1, -80)
+        f.BackgroundColor3 = Color3.fromRGB(28, 28, 32)
+        f.Parent = sg
+        Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
+        local t = Instance.new("TextLabel")
+        t.BackgroundTransparency = 1
+        t.Size = UDim2.new(1, -16, 0, 20)
+        t.Position = UDim2.new(0, 8, 0, 6)
+        t.Font = Enum.Font.GothamBold
+        t.TextSize = 14
+        t.TextColor3 = Color3.fromRGB(255, 255, 255)
+        t.TextXAlignment = Enum.TextXAlignment.Left
+        t.Text = tostring(title)
+        t.Parent = f
+        local b = Instance.new("TextLabel")
+        b.BackgroundTransparency = 1
+        b.Size = UDim2.new(1, -16, 0, 22)
+        b.Position = UDim2.new(0, 8, 0, 28)
+        b.Font = Enum.Font.Gotham
+        b.TextSize = 13
+        b.TextColor3 = Color3.fromRGB(200, 200, 210)
+        b.TextXAlignment = Enum.TextXAlignment.Left
+        b.Text = tostring(text)
+        b.Parent = f
+        task.delay(dur, function()
+            pcall(function() sg:Destroy() end)
+        end)
+    end)
+    if not ok then
+        print("[AutoPiano]", title, text)
+    end
+end
+
+local function clickSound()
+    pcall(function()
+        local s = Instance.new("Sound")
+        s.SoundId = "rbxassetid://6493287948"
+        s.Volume = 0.08
+        s.Parent = LP.Character or LP
+        s:Play()
+        game:GetService("Debris"):AddItem(s, 2)
+    end)
+end
+
+-- key maps (Virtual Piano QWERTY)
+local shiftKeys = {
+    ["!"]=true,["@"]=true,["#"]=true,["$"]=true,["%"]=true,["^"]=true,
+    ["&"]=true,["*"]=true,["("]=true,[")"]=true,
+    ["Q"]=true,["W"]=true,["E"]=true,["R"]=true,["T"]=true,["Y"]=true,
+    ["U"]=true,["I"]=true,["O"]=true,["P"]=true,
+    ["A"]=true,["S"]=true,["D"]=true,["F"]=true,["G"]=true,["H"]=true,
+    ["J"]=true,["K"]=true,["L"]=true,
+    ["Z"]=true,["X"]=true,["C"]=true,["V"]=true,["B"]=true,["N"]=true,["M"]=true,
+}
+
+local keyMap = {
+    ["1"]=Enum.KeyCode.One,["!"]=Enum.KeyCode.One,
+    ["2"]=Enum.KeyCode.Two,["@"]=Enum.KeyCode.Two,
+    ["3"]=Enum.KeyCode.Three,["#"]=Enum.KeyCode.Three,
+    ["4"]=Enum.KeyCode.Four,["$"]=Enum.KeyCode.Four,
+    ["5"]=Enum.KeyCode.Five,["%"]=Enum.KeyCode.Five,
+    ["6"]=Enum.KeyCode.Six,["^"]=Enum.KeyCode.Six,
+    ["7"]=Enum.KeyCode.Seven,["&"]=Enum.KeyCode.Seven,
+    ["8"]=Enum.KeyCode.Eight,["*"]=Enum.KeyCode.Eight,
+    ["9"]=Enum.KeyCode.Nine,["("]=Enum.KeyCode.Nine,
+    ["0"]=Enum.KeyCode.Zero,[")"]=Enum.KeyCode.Zero,
+    ["q"]=Enum.KeyCode.Q,["Q"]=Enum.KeyCode.Q,
+    ["w"]=Enum.KeyCode.W,["W"]=Enum.KeyCode.W,
+    ["e"]=Enum.KeyCode.E,["E"]=Enum.KeyCode.E,
+    ["r"]=Enum.KeyCode.R,["R"]=Enum.KeyCode.R,
+    ["t"]=Enum.KeyCode.T,["T"]=Enum.KeyCode.T,
+    ["y"]=Enum.KeyCode.Y,["Y"]=Enum.KeyCode.Y,
+    ["u"]=Enum.KeyCode.U,["U"]=Enum.KeyCode.U,
+    ["i"]=Enum.KeyCode.I,["I"]=Enum.KeyCode.I,
+    ["o"]=Enum.KeyCode.O,["O"]=Enum.KeyCode.O,
+    ["p"]=Enum.KeyCode.P,["P"]=Enum.KeyCode.P,
+    ["a"]=Enum.KeyCode.A,["A"]=Enum.KeyCode.A,
+    ["s"]=Enum.KeyCode.S,["S"]=Enum.KeyCode.S,
+    ["d"]=Enum.KeyCode.D,["D"]=Enum.KeyCode.D,
+    ["f"]=Enum.KeyCode.F,["F"]=Enum.KeyCode.F,
+    ["g"]=Enum.KeyCode.G,["G"]=Enum.KeyCode.G,
+    ["h"]=Enum.KeyCode.H,["H"]=Enum.KeyCode.H,
+    ["j"]=Enum.KeyCode.J,["J"]=Enum.KeyCode.J,
+    ["k"]=Enum.KeyCode.K,["K"]=Enum.KeyCode.K,
+    ["l"]=Enum.KeyCode.L,["L"]=Enum.KeyCode.L,
+    ["z"]=Enum.KeyCode.Z,["Z"]=Enum.KeyCode.Z,
+    ["x"]=Enum.KeyCode.X,["X"]=Enum.KeyCode.X,
+    ["c"]=Enum.KeyCode.C,["C"]=Enum.KeyCode.C,
+    ["v"]=Enum.KeyCode.V,["V"]=Enum.KeyCode.V,
+    ["b"]=Enum.KeyCode.B,["B"]=Enum.KeyCode.B,
+    ["n"]=Enum.KeyCode.N,["N"]=Enum.KeyCode.N,
+    ["m"]=Enum.KeyCode.M,["M"]=Enum.KeyCode.M,
+}
+
+local noteMap = {
+    ["C"]  = {[1]="1",[2]="8",[3]="t",[4]="s",[5]="l",[6]="m"},
+    ["C#"] = {[1]="!",[2]="*",[3]="T",[4]="S",[5]="L"},
+    ["D"]  = {[1]="2",[2]="9",[3]="y",[4]="d",[5]="z"},
+    ["D#"] = {[1]="@",[2]="(",[3]="Y",[4]="D",[5]="Z"},
+    ["E"]  = {[1]="3",[2]="0",[3]="u",[4]="f",[5]="x"},
+    ["F"]  = {[1]="4",[2]="q",[3]="i",[4]="g",[5]="c"},
+    ["F#"] = {[1]="$",[2]="Q",[3]="I",[4]="G",[5]="C"},
+    ["G"]  = {[1]="5",[2]="w",[3]="o",[4]="h",[5]="v"},
+    ["G#"] = {[1]="%",[2]="W",[3]="O",[4]="H",[5]="V"},
+    ["A"]  = {[1]="6",[2]="e",[3]="p",[4]="j",[5]="b"},
+    ["A#"] = {[1]="^",[2]="E",[3]="P",[4]="J",[5]="B"},
+    ["B"]  = {[1]="7",[2]="r",[3]="a",[4]="k",[5]="n"},
+}
+
+local function holdTime(beats, useBpm)
+    if type(beats) ~= "number" then
+        return math.random(5, 12) / 100 -- short note
+    end
+    local t = (beats / (useBpm or bpm or 120)) * 60
+    return math.max(0.04, t * 0.85)
+end
+
+local function pressOne(key, beats, useBpm)
+    if _G.STOPIT then return end
+    local code = keyMap[key]
+    if not code then return end
+    local needShift = shiftKeys[key] == true
+    if needShift then
+        VIM:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+    end
+    VIM:SendKeyEvent(true, code, false, game)
+    task.wait(holdTime(beats, useBpm))
+    VIM:SendKeyEvent(false, code, false, game)
+    if needShift then
+        VIM:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+    end
+end
+
+local function pressKeys(keys, beats, useBpm)
+    if _G.STOPIT or type(keys) ~= "string" then return end
+    local ctrl = false
+    if keys:sub(1, 5) == "Ctrl+" then
+        ctrl = true
+        keys = keys:sub(6)
+    end
+    for i = 1, #keys do
+        local key = keys:sub(i, i)
+        task.spawn(function()
+            if _G.STOPIT then return end
+            if ctrl then
+                VIM:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
+            end
+            pressOne(key, beats, useBpm)
+            if ctrl then
+                VIM:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
+            end
+        end)
+        if errormargin and errormargin > 0 and math.random() < 0.4 then
+            task.wait(math.random() * errormargin / 3)
+        end
+    end
+end
+
+-- ===== Public API (used by song scripts) =====
+
+function keypress(keys, beats, useBpm)
+    if _G.STOPIT then return end
+    if pausing then resumeEvent.Event:Wait() end
+    task.spawn(function()
+        if _G.STOPIT then return end
+        pressKeys(keys, beats, useBpm or bpm)
+    end)
+end
+
+function rest(beats, useBpm)
+    if _G.STOPIT then return end
+    if pausing then resumeEvent.Event:Wait() end
+    local t = (tonumber(beats) or 0) / (useBpm or bpm or 120) * 60
+    if _G.SEEK_SECONDS and _G.SEEK_SECONDS > 0 then
+        if _G.SEEK_SECONDS >= t then
+            _G.SEEK_SECONDS = _G.SEEK_SECONDS - t
+            return
+        end
+        t = t - _G.SEEK_SECONDS
+        _G.SEEK_SECONDS = 0
+    end
+    if t > 0 then
+        task.wait(t)
+    end
+end
+
+function finishedSong()
+    if _G.STOPIT then return end
+    clickSound()
+    notify("Done", "Song finished.", 2)
+    _G.STOPIT = true
+    _G.songisplaying = false
+    songisplaying = false
+    if _G.APControls then
+        pcall(function() _G.APControls:Destroy() end)
+        _G.APControls = nil
+    end
+end
+
+function pressnote(note, octave, beats, useBpm)
+    local key = noteMap[note] and noteMap[note][octave]
+    if key then
+        keypress(key, beats, useBpm)
+    end
+end
+
+function keysequence16(keys, beats, useBpm)
+    for i = 1, #keys do
+        if _G.STOPIT then return end
+        keypress(keys:sub(i, i), beats, useBpm)
+        rest(0.25, useBpm)
+    end
+end
+
+function adjustVelocity(vel)
+    -- optional: virtual piano velocity via Alt+key; skip if unwanted
+end
+
+function pedalDown()
+    if _G.STOPIT then return end
+    VIM:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+end
+
+function pedalUp()
+    if _G.STOPIT then return end
+    VIM:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+end
+
+function stopPlayingSongs()
+    _G.STOPIT = true
+    _G.songisplaying = false
+    songisplaying = false
+    clickSound()
+    notify("Stop", "Stopped.", 1)
+    if _G.APControls then
+        pcall(function() _G.APControls:Destroy() end)
+        _G.APControls = nil
+    end
+end
+
+-- ===== Control UI =====
+pcall(function()
+    local old = CoreGui:FindFirstChild("APControls")
+    if old then old:Destroy() end
+end)
+
+local guiParent = CoreGui
+pcall(function()
+    if not guiParent then
+        guiParent = LP:WaitForChild("PlayerGui")
+    end
+end)
+
+local sg = Instance.new("ScreenGui")
+sg.Name = "APControls"
+sg.ResetOnSpawn = false
+sg.DisplayOrder = 120
+sg.Parent = guiParent
+_G.APControls = sg
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 320, 0, 110)
+frame.Position = UDim2.new(0.5, -160, 0.75, 0)
+frame.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
+frame.BorderSizePixel = 0
+frame.Parent = sg
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+
+local stroke = Instance.new("UIStroke", frame)
+stroke.Color = Color3.fromRGB(255, 120, 160)
+stroke.Thickness = 1.2
+stroke.Transparency = 0.35
+
+local title = Instance.new("TextLabel")
+title.BackgroundTransparency = 1
+title.Size = UDim2.new(1, -16, 0, 22)
+title.Position = UDim2.new(0, 10, 0, 6)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Text = "AutoPiano  |  BPM " .. tostring(bpm)
+title.Parent = frame
+
+local function mkBtn(text, x, w, callback)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, w, 0, 36)
+    b.Position = UDim2.new(0, x, 0, 40)
+    b.BackgroundColor3 = Color3.fromRGB(48, 48, 56)
+    b.Text = text
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 14
+    b.TextColor3 = Color3.fromRGB(255, 255, 255)
+    b.Parent = frame
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+    b.MouseButton1Click:Connect(callback)
+    return b
+end
+
+mkBtn("Pause", 10, 70, function()
+    pausing = not pausing
+    if not pausing then
+        resumeEvent:Fire()
+        notify("Resume", "Playing", 1)
+    else
+        notify("Pause", "Paused", 1)
+    end
+    clickSound()
+end)
+
+mkBtn("Stop", 90, 70, function()
+    stopPlayingSongs()
+end)
+
+mkBtn("<< 5s", 170, 60, function()
+    _G.SEEK_SECONDS = math.max(0, (_G.SEEK_SECONDS or 0) - 5)
+    notify("Seek", "-5s", 1)
+    clickSound()
+end)
+
+mkBtn(">> 5s", 240, 60, function()
+    _G.SEEK_SECONDS = (_G.SEEK_SECONDS or 0) + 5
+    notify("Seek", "+5s", 1)
+    clickSound()
+end)
+
+-- drag
+do
+    local dragging, start, startPos
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            start = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local d = input.Position - start
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        end
+    end)
+end
+
+notify("Play", "Engine ready", 1)
+print("[AutoPiano] Engine loaded. BPM=", bpm)
+
+]=]
+
+-- Try load local engine content if running from same host later; for now use remote fallback in play.
+
+-- ========== Song catalog (url = sheet name on host) ==========
+-- url field is used directly: .../SONGS/{url}
+local SONG_DATA = {
+    { name = "INTERSTELLAR",           bpm = "104", url = "INTERSTELLAR",              cat = {"epic", "beautiful"} },
+    { name = "RUSH E",                 bpm = "80",  url = "RUSH_E",                    cat = {"memes"} },
+    { name = "GOLDEN HOUR",            bpm = "94",  url = "GOLDEN_HOUR",               cat = {"beautiful", "best"} },
+    { name = "CUPID",                  bpm = "120", url = "CUPID",                     cat = {"pop/hiphop"} },
+    { name = "RAT DANCE",              bpm = "120", url = "RAT_DANCE",                 cat = {"memes"} },
+    { name = "RUNAWAY",                bpm = "85",  url = "RUNAWAY",                   cat = {"pop/hiphop"} },
+    { name = "YOUR REALITY",           bpm = "105", url = "YOUR_REALITY",              cat = {"video games", "beautiful", "best"} },
+    { name = "ANOTHER LOVE",           bpm = "123", url = "ANOTHER_LOVE",              cat = {"sad", "best", "epic", "beautiful"} },
+    { name = "FINAL DUET",             bpm = "84",  url = "FINAL_DUET",                cat = {"video games"} },
+    { name = "EXPERIENCE",             bpm = "92",  url = "EXPERIENCE",                cat = {"epic", "best", "beautiful", "peak"} },
+    { name = "CAN YOU HEAR THE MUSIC", bpm = "80",  url = "CAN_YOU_HEAR_THE_FUCKING_MUSIC", cat = {"epic"} },
+    { name = "HOWLS MOVING CASTLE",   bpm = "156", url = "HOWLS_MOVING_CASTLE",      cat = {"anime/jpop", "beautiful"} },
+    { name = "YOUNG GIRL A",           bpm = "130", url = "YOUNG_GIRL_A",              cat = {"anime/jpop", "sad", "beautiful", "best"} },
+    { name = "ARIA MATH",              bpm = "84",  url = "ARIA_MATH",                 cat = {"video games", "minecraft", "beautiful"} },
+    { name = "ALL MY FELLAS",          bpm = "160", url = "ALL_MY_FELLAS",             cat = {"memes"} },
+    { name = "THICK OF IT",            bpm = "146", url = "THICK_OF_IT",               cat = {"memes"} },
+    { name = "ROMANTIC HOMICIDE",      bpm = "132", url = "ROMANTIC_HOMICIDE",         cat = {"sad"} },
+    { name = "IF I AM WITH YOU",       bpm = "82",  url = "IF_I_AM_WITH_YOU",          cat = {"anime/jpop", "best", "beautiful", "peak"} },
+    { name = "CRADLES",                bpm = "79",  url = "CRADLES",                   cat = {"electronic"} },
+    { name = "IDOL",                   bpm = "166", url = "IDOL",                      cat = {"anime/jpop", "best"} },
+    { name = "RIVER FLOWS IN YOU",     bpm = "137", url = "RIVER_FLOWS_IN_YOU",        cat = {"sad"} },
+    { name = "NOCTURNE",               bpm = "62",  url = "NOCTURNE",                  cat = {"classical", "best"} },
+    { name = "ISABELLA'S LULLABY",     bpm = "112", url = "ISABELLAS_LULLABY",         cat = {"video games"} },
+    { name = "GIORNO",                 bpm = "135", url = "GIORNO",                    cat = {"anime/jpop", "memes"} },
+    { name = "NEVER GONNA GIVE YOU UP",bpm = "113", url = "GIVE_UP",                   cat = {"memes", "pop/hiphop"} },
+    { name = "UNRAVEL",                bpm = "135", url = "UNRAVEL",                   cat = {"anime/jpop", "beautiful"} },
+    { name = "SWEATER WEATHER",        bpm = "124", url = "SWEATER_WEATHER",           cat = {"sad"} },
+    { name = "VIVA LA VIDA",           bpm = "138", url = "VIVA_LA_VIDA",              cat = {"epic"} },
+    { name = "HOPES AND DREAMS",       bpm = "170", url = "HOPES_DREAMS",              cat = {"video games", "undertale", "best", "epic", "peak"} },
+    { name = "UNDERTALE",              bpm = "100", url = "UNDERTALE",                 cat = {"video games", "undertale", "best", "epic"} },
+    { name = "MEGALOVANIA",            bpm = "120", url = "MEGALOVANIA",               cat = {"video games", "undertale", "memes"} },
+    { name = "SPIDER DANCE",           bpm = "115", url = "SPIDER_DANCE",              cat = {"video games", "undertale"} },
+    { name = "BAD APPLE!!",            bpm = "138", url = "BAD_APPLE",                 cat = {"anime/jpop", "popular"} },
+    { name = "FADED",                  bpm = "90",  url = "FADED",                     cat = {"electronic"} },
+    { name = "DESPACITO",              bpm = "89",  url = "DESPACITO",                 cat = {"pop/hiphop"} },
+    { name = "BLINDING LIGHTS",        bpm = "171", url = "BLINDING_LIGHTS",           cat = {"pop/hiphop"} },
+    { name = "AS IT WAS",              bpm = "174", url = "AS_IT_WAS",                 cat = {"pop/hiphop"} },
+    { name = "DIE WITH A SMILE",       bpm = "152", url = "DIE_WITH",                  cat = {"pop/hiphop"} },
+    { name = "BIRDS OF A FEATHER",     bpm = "105", url = "BIRDS_OF_A",                cat = {"pop/hiphop"} },
+    { name = "SWEDEN",                 bpm = "44",  url = "SWEDEN",                    cat = {"video games", "minecraft"} },
+    { name = "WET HANDS",              bpm = "74",  url = "WET_HANDS",                 cat = {"video games", "minecraft", "beautiful"} },
+    { name = "DRY HANDS",              bpm = "90",  url = "DRY_HANDS",                 cat = {"video games", "minecraft", "beautiful"} },
+    { name = "CANON IN D",             bpm = "60",  url = "CANON_D",                   cat = {"classical"} },
+    { name = "CARELESS WHISPER",       bpm = "77",  url = "CARELESS",                  cat = {"pop/hiphop"} },
+    { name = "ENTRY OF THE GLADIATORS",bpm = "140", url = "ENTRY_OF_THE",              cat = {"classical", "memes"} },
+    { name = "AT THE SPEED OF LIGHT",  bpm = "162", url = "SPEED_OF",                  cat = {"video games", "electronic", "epic", "best", "peak"} },
+    { name = "A SKY FULL OF STARS",    bpm = "125", url = "A_SKY_FULL",                cat = {"pop/hiphop"} },
+    { name = "AFTER DARK",             bpm = "140", url = "AFTER_DARK",                cat = {"sad"} },
+    { name = "DEATH BED",              bpm = "72",  url = "DEATH_BED",                 cat = {"sad"} },
+    { name = "FALLEN DOWN",            bpm = "110", url = "FALLEN_DOWN",               cat = {"video games", "undertale"} },
+    { name = "HIS THEME",              bpm = "90",  url = "HIS_THEME",                 cat = {"video games", "undertale"} },
+}
+
+-- ========== GUI ==========
+local CoreGui = game:GetService("CoreGui")
+local UIS = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
 
 local ScreenGui = Instance.new("ScreenGui")
-local frame = Instance.new("Frame")
-local closeButton = Instance.new("TextButton")
-local infoButton = Instance.new("TextButton")
-local title = Instance.new("TextLabel")
-local uic2 = Instance.new("UICorner")
-local uic1 = Instance.new("UICorner")
-local categoriesFrame = Instance.new("ScrollingFrame")
-local categoriesLayout = Instance.new("UIListLayout")
-local categoriesPadding = Instance.new("UIPadding")
-local scroll = Instance.new("ScrollingFrame")
-local listLayout = Instance.new("UIListLayout")
-local barlist = Instance.new("UIListLayout")
-local barpadding = Instance.new("UIPadding")
-local padding = Instance.new("UIPadding")
-local searchbar = Instance.new("TextBox")
-local creds = Instance.new("TextLabel")
-local bar = Instance.new("Frame")
-local songname = Instance.new("TextLabel")
-local bpmbox = Instance.new("TextBox")
-local playsong = Instance.new("TextButton")
-
---Properties:
-
-ScreenGui.Parent = game:GetService("CoreGui")
+ScreenGui.Name = "AutoPianoUI"
+ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pcall(function() ScreenGui.Parent = CoreGui end)
+if not ScreenGui.Parent then
+    ScreenGui.Parent = LP:WaitForChild("PlayerGui")
+end
 
+local frame = Instance.new("Frame")
 frame.Name = "frame"
 frame.Parent = ScreenGui
-frame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-frame.BorderColor3 = Color3.fromRGB(219, 112, 147)
+frame.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
 frame.BorderSizePixel = 0
 frame.Position = UDim2.new(0.5, 0, 0.5, 0)
 frame.AnchorPoint = Vector2.new(0.5, 0.5)
-frame.Size = UDim2.new(0, 475, 0, 272)
+frame.Size = UDim2.new(0, 520, 0, 360)
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
 
-closeButton.Name = "closeButton"
-closeButton.Parent = frame
-closeButton.BackgroundTransparency = 1.000
-closeButton.LayoutOrder = 1
-closeButton.Position = UDim2.new(1, -35, 0, 5)
-closeButton.Size = UDim2.new(0, 30, 0, 30)
-closeButton.ZIndex = 5
-closeButton.Font = Enum.Font.SourceSansBold
-closeButton.Text = "X"
-closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeButton.TextScaled = true
-closeButton.TextWrapped = true
+local stroke = Instance.new("UIStroke", frame)
+stroke.Color = Color3.fromRGB(255, 140, 170)
+stroke.Thickness = 1.5
+stroke.Transparency = 0.4
 
-infoButton.Name = "infoButton"
-infoButton.Parent = frame
-infoButton.BackgroundTransparency = 1.000
-infoButton.LayoutOrder = 2
-infoButton.Position = UDim2.new(0, 5, 0, 5)
-infoButton.Size = UDim2.new(0, 30, 0, 30)
-infoButton.ZIndex = 5
-infoButton.Font = Enum.Font.SourceSansBold
-infoButton.Text = "?"
-infoButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-infoButton.TextScaled = true
-infoButton.TextWrapped = true
+-- Title bar
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 44)
+titleBar.BackgroundColor3 = Color3.fromRGB(255, 120, 160)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = frame
+Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 12)
+local titleFix = Instance.new("Frame")
+titleFix.Size = UDim2.new(1, 0, 0, 16)
+titleFix.Position = UDim2.new(0, 0, 1, -16)
+titleFix.BackgroundColor3 = Color3.fromRGB(255, 120, 160)
+titleFix.BorderSizePixel = 0
+titleFix.Parent = titleBar
 
-title.Name = "title"
-title.Parent = frame
-title.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-title.BorderColor3 = Color3.fromRGB(255, 182, 193)
-title.BorderSizePixel = 0
-title.Size = UDim2.new(1, 0, 0, 50)
-title.Font = Enum.Font.SourceSansBold
-title.Text = "Piano Auto Sheet"
+local title = Instance.new("TextLabel")
+title.BackgroundTransparency = 1
+title.Size = UDim2.new(1, -80, 1, 0)
+title.Position = UDim2.new(0, 16, 0, 0)
+title.Font = Enum.Font.GothamBold
+title.Text = "AutoPiano"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.TextSize = 46.000
+title.TextSize = 22
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = titleBar
 
-uic2.CornerRadius = UDim.new(0, 4)
-uic2.Name = "uic2"
-uic2.Parent = title
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.new(0, 28, 0, 28)
+closeButton.Position = UDim2.new(1, -36, 0, 8)
+closeButton.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+closeButton.Text = "X"
+closeButton.Font = Enum.Font.GothamBold
+closeButton.TextSize = 14
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeButton.Parent = titleBar
+Instance.new("UICorner", closeButton).CornerRadius = UDim.new(0, 6)
+closeButton.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
 
-uic1.CornerRadius = UDim.new(0, 4)
-uic1.Name = "uic1"
-uic1.Parent = frame
+local infoButton = Instance.new("TextButton")
+infoButton.Size = UDim2.new(0, 28, 0, 28)
+infoButton.Position = UDim2.new(1, -70, 0, 8)
+infoButton.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+infoButton.Text = "?"
+infoButton.Font = Enum.Font.GothamBold
+infoButton.TextSize = 14
+infoButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+infoButton.Parent = titleBar
+Instance.new("UICorner", infoButton).CornerRadius = UDim.new(0, 6)
+infoButton.MouseButton1Click:Connect(function()
+    NotificationLibrary:SendNotification("Info", "Select a song → set BPM → Play. Custom songs in AUTOPIANO_CUSTOM_SONGS.", 4)
+end)
 
+-- Categories
+local categoriesFrame = Instance.new("ScrollingFrame")
 categoriesFrame.Name = "categoriesFrame"
 categoriesFrame.Parent = frame
-categoriesFrame.Active = true
-categoriesFrame.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-categoriesFrame.BackgroundTransparency = 1.000
-categoriesFrame.BorderColor3 = Color3.fromRGB(219, 112, 147)
-categoriesFrame.BorderSizePixel = 0
-categoriesFrame.Position = UDim2.new(0.0105263162, 0, 0.183819935, 0)
-categoriesFrame.Size = UDim2.new(0, 111, 0, 222)
-categoriesFrame.ZIndex = 0
+categoriesFrame.BackgroundTransparency = 1
+categoriesFrame.Position = UDim2.new(0, 10, 0, 54)
+categoriesFrame.Size = UDim2.new(0, 110, 0, 240)
 categoriesFrame.ScrollBarThickness = 3
+categoriesFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 categoriesFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
 
-categoriesLayout.Name = "categoriesLayout"
+local categoriesLayout = Instance.new("UIListLayout")
 categoriesLayout.Parent = categoriesFrame
 categoriesLayout.SortOrder = Enum.SortOrder.LayoutOrder
-categoriesLayout.Padding = UDim.new(0, 10)
+categoriesLayout.Padding = UDim.new(0, 6)
 categoriesLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
-categoriesPadding.Name = "categoriesPadding"
+local categoriesPadding = Instance.new("UIPadding")
 categoriesPadding.Parent = categoriesFrame
-categoriesPadding.PaddingLeft = UDim.new(0, 5)
-categoriesPadding.PaddingRight = UDim.new(0, 5)
-categoriesPadding.PaddingTop = UDim.new(0, 5)
-categoriesPadding.PaddingBottom = UDim.new(0, 5)
+categoriesPadding.PaddingTop = UDim.new(0, 4)
+categoriesPadding.PaddingBottom = UDim.new(0, 4)
 
+-- Song list
+local scroll = Instance.new("ScrollingFrame")
 scroll.Name = "scroll"
 scroll.Parent = frame
-scroll.Active = true
-scroll.BackgroundColor3 = Color3.fromRGB(46, 46, 46)
-scroll.BackgroundTransparency = 1.000
-scroll.BorderColor3 = Color3.fromRGB(0, 0, 0)
-scroll.BorderSizePixel = 0
-scroll.Position = UDim2.new(0.266860753, 0, 0.183819935, 0)
-scroll.Size = UDim2.new(0, 198, 0, 222)
-scroll.CanvasPosition = Vector2.new(0, 17.4999962)
-scroll.HorizontalScrollBarInset = Enum.ScrollBarInset.Always
-scroll.ScrollBarThickness = 3
+scroll.BackgroundTransparency = 1
+scroll.Position = UDim2.new(0, 128, 0, 54)
+scroll.Size = UDim2.new(0, 220, 0, 240)
+scroll.ScrollBarThickness = 4
+scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 
-listLayout.Name = "listLayout"
+local listLayout = Instance.new("UIListLayout")
 listLayout.Parent = scroll
 listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-listLayout.Padding = UDim.new(0, 20)
+listLayout.Padding = UDim.new(0, 8)
 
-padding.Name = "padding"
-padding.Parent = scroll
-padding.PaddingTop = UDim.new(0, 20)
-padding.PaddingBottom = UDim.new(0, 20)
+local listPad = Instance.new("UIPadding")
+listPad.Parent = scroll
+listPad.PaddingTop = UDim.new(0, 8)
+listPad.PaddingBottom = UDim.new(0, 8)
 
+-- Search
+local searchbar = Instance.new("TextBox")
 searchbar.Name = "searchbar"
 searchbar.Parent = scroll
-searchbar.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-searchbar.BorderColor3 = Color3.fromRGB(255, 182, 193)
-searchbar.BorderSizePixel = 0
-searchbar.Position = UDim2.new(0.163100004, 0, 0.0500000007, 0)
-searchbar.Size = UDim2.new(0, 150, 0, 20)
-searchbar.Font = Enum.Font.SourceSansBold
+searchbar.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+searchbar.Size = UDim2.new(0, 200, 0, 28)
+searchbar.Font = Enum.Font.Gotham
 searchbar.PlaceholderText = "Search..."
 searchbar.Text = ""
-searchbar.TextColor3 = Color3.fromRGB(255, 254, 255)
-searchbar.TextScaled = true
-searchbar.TextSize = 14.000
-searchbar.TextWrapped = true
+searchbar.TextColor3 = Color3.fromRGB(255, 255, 255)
+searchbar.PlaceholderColor3 = Color3.fromRGB(140, 140, 150)
+searchbar.TextSize = 14
+searchbar.LayoutOrder = 0
+Instance.new("UICorner", searchbar).CornerRadius = UDim.new(0, 6)
 
-creds.Name = "creds"
-creds.Parent = frame
-creds.AnchorPoint = Vector2.new(0.5, 0.5)
-creds.BackgroundColor3 = Color3.fromRGB(255, 182, 193)
-creds.BackgroundTransparency = 1.000
-creds.BorderColor3 = Color3.fromRGB(0, 0, 0)
-creds.BorderSizePixel = 0
-creds.Position = UDim2.new(0.5, 0, 0.189999998, 0)
-creds.Size = UDim2.new(0, 314, 0, 26)
-creds.Font = Enum.Font.LuckiestGuy
-creds.Text = "piano autoplayer by gau1234ct5"
-creds.TextColor3 = Color3.fromRGB(255, 254, 255)
-creds.TextScaled = true
-creds.TextSize = 14.000
-creds.TextTransparency = 0.320
-creds.TextWrapped = true
-
+-- Right control bar
+local bar = Instance.new("Frame")
 bar.Name = "bar"
 bar.Parent = frame
-bar.Active = true
-bar.BackgroundColor3 = Color3.fromRGB(255, 182, 193)
-bar.BackgroundTransparency = 1.000
-bar.BorderColor3 = Color3.fromRGB(0, 0, 0)
-bar.BorderSizePixel = 0
-bar.Position = UDim2.new(1.05001855, -173, 0.20220229, 0)
-bar.Size = UDim2.new(0, 143, 0, 150)
-bar.ZIndex = 0
+bar.BackgroundTransparency = 1
+bar.Position = UDim2.new(1, -160, 0, 54)
+bar.Size = UDim2.new(0, 148, 0, 240)
 
-songname.Name = "songname"
-songname.Parent = bar
-songname.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-songname.BorderColor3 = Color3.fromRGB(255, 182, 193)
-songname.BorderSizePixel = 4
-songname.Position = UDim2.new(0.0689100027, 0, 0.0855299979, 0)
-songname.Size = UDim2.new(0, 125, 0, 34)
-songname.ZIndex = -5
-songname.Font = Enum.Font.SourceSansBold
-songname.Text = "SONG NAME"
-songname.TextColor3 = Color3.fromRGB(255, 255, 255)
-songname.TextScaled = true
-songname.TextSize = 23.000
-songname.TextWrapped = true
-songname.LayoutOrder = 1
-
-bpmbox.Name = "bpmbox"
-bpmbox.Parent = bar
-bpmbox.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-bpmbox.BorderColor3 = Color3.fromRGB(255, 182, 193)
-bpmbox.BorderSizePixel = 0
-bpmbox.Position = UDim2.new(0.163100004, 0, 0.612699986, 0)
-bpmbox.Size = UDim2.new(0, 90, 0, 20)
-bpmbox.Font = Enum.Font.SourceSansBold
-bpmbox.PlaceholderText = "bpm"
-bpmbox.Text = ""
-bpmbox.TextColor3 = Color3.fromRGB(255, 255, 255)
-bpmbox.TextScaled = true
-bpmbox.TextSize = 14.000
-bpmbox.TextWrapped = true
-bpmbox.LayoutOrder = 2
-
-playsong.Name = "playsong"
-playsong.Parent = bar
-playsong.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-playsong.BorderColor3 = Color3.fromRGB(255, 182, 193)
-playsong.BorderSizePixel = 4
-playsong.Position = UDim2.new(0.0689100027, 0, 0.38815999, 0)
-playsong.Size = UDim2.new(0, 125, 0, 27)
-playsong.Font = Enum.Font.SourceSansBold
-playsong.Text = "Play"
-playsong.TextColor3 = Color3.fromRGB(255, 255, 255)
-playsong.TextSize = 25.000
-playsong.LayoutOrder = 3
-
-barlist.Name = "barlist"
+local barlist = Instance.new("UIListLayout")
 barlist.Parent = bar
 barlist.SortOrder = Enum.SortOrder.LayoutOrder
 barlist.Padding = UDim.new(0, 10)
 barlist.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
-barpadding.Name = "categoriesPadding"
+local barpadding = Instance.new("UIPadding")
 barpadding.Parent = bar
-barpadding.PaddingLeft = UDim.new(0, 5)
-barpadding.PaddingRight = UDim.new(0, 5)
-barpadding.PaddingTop = UDim.new(0, 10)
-barpadding.PaddingBottom = UDim.new(0, 5)
+barpadding.PaddingTop = UDim.new(0, 8)
 
-local function filterSongs(query)
-    query = query:lower()
-    scroll.CanvasPosition = Vector2.new(0, 0)
-    for _, child in pairs(scroll:GetChildren()) do
-        if child:IsA("TextButton")  then
-            -- Regular song buttons
-            local songName = child.Text:lower()
-            local alternateNamesStr = child:GetAttribute("AlternateNames") or ""
-            local alternateNames = alternateNamesStr:split(",")
-            local matchFound = false
+local songname = Instance.new("TextLabel")
+songname.Name = "songname"
+songname.Parent = bar
+songname.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+songname.Size = UDim2.new(0, 130, 0, 40)
+songname.Font = Enum.Font.GothamBold
+songname.Text = "Select a song"
+songname.TextColor3 = Color3.fromRGB(255, 255, 255)
+songname.TextSize = 13
+songname.TextWrapped = true
+songname.LayoutOrder = 1
+Instance.new("UICorner", songname).CornerRadius = UDim.new(0, 8)
 
-            if songName:find(query) then
-                matchFound = true
-            else
-                for _, altName in pairs(alternateNames) do
-                    if matchFound == false then
-                        if altName:lower():find(query) then
-                            matchFound = true
-                        end
-                    end
-                end
-            end
-            child.Visible = matchFound or query == ""
-        elseif child:IsA("Frame") and child:FindFirstChildOfClass("TextButton") then
-            -- Custom song frames
-            local button = child:FindFirstChildOfClass("TextButton")
-            local songName = button.Text:lower()
-            local matchFound = songName:find(query)
-            child.Visible = matchFound or query == ""
-        end
-    end
-end
+local bpmbox = Instance.new("TextBox")
+bpmbox.Name = "bpmbox"
+bpmbox.Parent = bar
+bpmbox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+bpmbox.Size = UDim2.new(0, 100, 0, 28)
+bpmbox.Font = Enum.Font.Gotham
+bpmbox.PlaceholderText = "BPM"
+bpmbox.Text = ""
+bpmbox.TextColor3 = Color3.fromRGB(255, 255, 255)
+bpmbox.PlaceholderColor3 = Color3.fromRGB(140, 140, 150)
+bpmbox.TextSize = 14
+bpmbox.LayoutOrder = 2
+Instance.new("UICorner", bpmbox).CornerRadius = UDim.new(0, 6)
 
-searchbar:GetPropertyChangedSignal("Text"):Connect(
-    function()
-        filterSongs(searchbar.Text)
-    end
-)
+local playsong = Instance.new("TextButton")
+playsong.Name = "playsong"
+playsong.Parent = bar
+playsong.BackgroundColor3 = Color3.fromRGB(255, 120, 160)
+playsong.Size = UDim2.new(0, 130, 0, 36)
+playsong.Font = Enum.Font.GothamBold
+playsong.Text = "Play"
+playsong.TextColor3 = Color3.fromRGB(255, 255, 255)
+playsong.TextSize = 18
+playsong.LayoutOrder = 3
+Instance.new("UICorner", playsong).CornerRadius = UDim.new(0, 8)
 
-filterSongs("")
+local addSongBtn = Instance.new("TextButton")
+addSongBtn.Name = "addSongBtn"
+addSongBtn.Parent = bar
+addSongBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 68)
+addSongBtn.Size = UDim2.new(0, 130, 0, 30)
+addSongBtn.Font = Enum.Font.Gotham
+addSongBtn.Text = "Add Song"
+addSongBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+addSongBtn.TextSize = 13
+addSongBtn.LayoutOrder = 4
+Instance.new("UICorner", addSongBtn).CornerRadius = UDim.new(0, 6)
 
--- drag script (not mince)
+local playRandomBtn = Instance.new("TextButton")
+playRandomBtn.Name = "playRandomBtn"
+playRandomBtn.Parent = bar
+playRandomBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 68)
+playRandomBtn.Size = UDim2.new(0, 130, 0, 28)
+playRandomBtn.Font = Enum.Font.Gotham
+playRandomBtn.Text = "Random"
+playRandomBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+playRandomBtn.TextSize = 13
+playRandomBtn.LayoutOrder = 5
+Instance.new("UICorner", playRandomBtn).CornerRadius = UDim.new(0, 6)
 
-local UserInputService = game:GetService("UserInputService")
-
-local gui = frame
-
-local dragging
-local dragInput
-local dragStart
-local startPos
-
-local function update(input)
-    local delta = input.Position - dragStart
-    gui.Position =
-        UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-end
-
-gui.InputBegan:Connect(
-    function(input)
+-- Drag main frame
+do
+    local dragging, dragStart, startPos
+    titleBar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
-            startPos = gui.Position
-
-            input.Changed:Connect(
-                function()
-                    if input.UserInputState == Enum.UserInputState.End then
-                        dragging = false
-                    end
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
                 end
-            )
+            end)
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local d = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        end
+    end)
+end
+
+-- ========== Songs state ==========
+local songs = {} -- { button, bpm, var, url, cat, name }
+local songisplaying = false
+local activeCategory = "all"
+
+local function disable()
+    for _, s in ipairs(songs) do
+        s.var = false
+        if s.button then
+            s.button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
         end
     end
-)
+end
 
-gui.InputChanged:Connect(
-    function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-        end
-    end
-)
-
-UserInputService.InputChanged:Connect(
-    function(input)
-        if input == dragInput and dragging then
-            update(input)
-        end
-    end
-)
-
-local function newSongButton(name, textsize, alternateNames)
+local function newSongButton(displayName)
     local button = Instance.new("TextButton")
-    button.Name = name
+    button.Name = displayName
     button.Parent = scroll
-    button.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-    button.BorderColor3 = Color3.fromRGB(255, 182, 193)
-    button.BorderSizePixel = 4
-    button.Size = UDim2.new(0, 175, 0, 35)
-    button.Font = Enum.Font.SourceSansBold
-    button.Text = name
+    button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    button.Size = UDim2.new(0, 200, 0, 32)
+    button.Font = Enum.Font.Gotham
+    button.Text = displayName
     button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.TextSize = textsize
-
-    button:SetAttribute("AlternateNames", table.concat(alternateNames or {}, ","))
-
+    button.TextSize = 13
+    button.TextTruncate = Enum.TextTruncate.AtEnd
+    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 6)
     return button
 end
 
--- newSongButton("", 27, {})
-
-LOOPRANDOM = newSongButton("SHUFFLE PLAY SONGS", 22, {})
-PLAYRANDOM = newSongButton("PLAY A RANDOM SONG", 22, {})
-
-local seperator = Instance.new("Frame")
-seperator.Name = "seperator"
-seperator.Parent = scroll
-seperator.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-seperator.Size = UDim2.new(0, 200, 0, 8)
-
-if game.Players.LocalPlayer.Name == "4BCQA" or game.Players.LocalPlayer.Name == "fredoggins" then
-    AVRIL_14 = newSongButton("AVRIL 14", 27, {})
-else
+-- Build song buttons from SONG_DATA
+for _, data in ipairs(SONG_DATA) do
+    local btn = newSongButton(data.name)
+    local entry = {
+        button = btn,
+        bpm = data.bpm,
+        var = false,
+        url = data.url,
+        cat = data.cat or {},
+        name = data.name,
+    }
+    table.insert(songs, entry)
+    btn.MouseButton1Click:Connect(function()
+        disable()
+        entry.var = true
+        btn.BackgroundColor3 = Color3.fromRGB(255, 120, 160)
+        songname.Text = data.name
+        bpmbox.Text = data.bpm
+        playSound(6493287948, 0.08)
+    end)
 end
 
-A_SKY_FULL = newSongButton("A SKY FULL OF STARS", 23, {"coldplay"})
-A_THOUSAND = newSongButton("A THOUSAND MILES", 24, {"popular"})
-AFTER_DARK = newSongButton("AFTER DARK", 27, {"mr kitty"})
-ALL_GIRLS = newSongButton("ALL GIRLS ARE THE SAME", 19, {"juice wrld"})
-ALL_I_WANT_IS_YOU = newSongButton("ALL I WANT IS YOU", 26, {"rebzyyx"})
-ALL_MY_FELLAS = newSongButton("ALL MY FELLAS", 27, {})
-ALL_THE_STARS = newSongButton("ALL THE STARS", 27, {"kendrick lamar", "sza", "black panther"})
-ENIGMATIC = newSongButton("AN ENIGMATIC ENCOUNTER", 17, {"undertale last breath"})
-ANOTHER_LOVE = newSongButton("ANOTHER LOVE", 27, {"sad, love"})
-ANYONE_CAN = newSongButton("ANYONE CAN BE FIND LOVE (except you.)", 10, {"breakcore"})
-ARIA_MATH = newSongButton("ARIA MATH", 27, {"c418"})
-ARUARIAN = newSongButton("ARUARIAN DANCE", 27, {"nujabes"})
-AS_IT_WAS = newSongButton("AS IT WAS", 27, {"harry styles"})
-ASGORE = newSongButton("ASGORE", 27, {})
-ASSUMPTIONS = newSongButton("ASSUMPTIONS", 27, {""})
-ASTRONAMIA = newSongButton("ASTRONAMIA (COFFIN DANCE)", 15, {""})
-SPEED_OF = newSongButton("AT THE SPEED OF LIGHT", 20, {"geometry dash"})
-AVENGERS = newSongButton("AVENGERS (EPIC COVER)", 20, {"popular", "movie", "hard"})
-BAD_APPLE = newSongButton("BAD APPLE!!", 27, {"popular"})
-BAD_HABIT = newSongButton("BAD HABIT", 27, {"steve lacy"})
-BAD_PIGGIES = newSongButton("BAD PIGGIES", 27, {"angry birds"})
-BATTLE_AGAINST = newSongButton("BATTLE AGAINST A TRUE HERO", 15, {})
-BEETHOVEN_VIRUS = newSongButton("BEETHOVEN VIRUS", 24, {"beethoven"})
-BIRDS_OF_A = newSongButton("BIRDS OF A FEATHER", 23, {"billie eilish"})
-BLINDING_LIGHTS = newSongButton("BLINDING LIGHTS", 27, {"the weeknd"})
-BLOODY = newSongButton("BLOODY MARY", 27, {"lady gaga", "wednesday"})
-BLUE = newSongButton("BLUE (DA BA DEE)", 27, {"im blue", "im good"})
-BLUE_YUNG = newSongButton("BLUE (YUNG KAI)", 27, {})
-BREADY = newSongButton("BREADY, SET, GO!", 25, {""})
-BY_YOUR_SIDE = newSongButton("BY YOUR SIDE", 27, {""})
-CAN_YOU_HEAR = newSongButton("CAN YOU HEAR THE MUSIC", 18, {"oppenheimer", "popular"})
-CAN_YOU_HEAR_EPIC = newSongButton("CAN YOU HEAR THE MUSIC (EPIC VER.)", 11, {"hans zimmer", "oppenheimer"})
-CANDYLAND = newSongButton("CANDYLAND", 27, {"tobu", "ncs", "no copyright sounds"})
-CANON_D = newSongButton("CANON IN D", 27, {""})
-CARELESS = newSongButton("CARELESS WHISPER", 24, {})
-CANT_LET = newSongButton("CANT LET GO", 27, {"geometry dash"})
-CENTIMETER = newSongButton("CENTIMETER", 27, {"rent a girlfriend", "rent-a-girlfriend"})
-CHRISTMAS_KIDS = newSongButton("CHRISTMAS KIDS", 27, {"roar"})
-CLOUD_9 = newSongButton("CLOUD 9", 27, {"tobu", "ncs", "no copyright sounds"})
-COCONUT = newSongButton("COCONUT MALL !!", 27, {"mario kart", "nintendo"})
-COUNTING_STARS = newSongButton("COUNTING STARS", 27, {"one republic"})
-CRADLES = newSongButton("CRADLES", 27, {"ncs", "no copyright sounds", "sub urban"})
-CUPID = newSongButton("CUPID", 27, {"love"})
-DAMNED = newSongButton("DAMNED (COD ZOMBIES)", 19, {"cod zombies theme", "call of duty", "creepy"})
-DARK_BEACH = newSongButton("DARK BEACH", 27, {"pastel ghost"})
-DAWN_OF = newSongButton("DAWN OF THE DOORS", 22, {"doors", "roblox", "lsplash"})
-DAYLIGHT = newSongButton("DAYLIGHT", 27, {"david kushner"})
-DEADLOCKED = newSongButton("DEADLOCKED", 27, {"geometry dash"})
-DEATH_BED = newSongButton("DEATH BED", 27, {"powfu", "beabadoobee"})
-DESPACITO = newSongButton("DESPACITO", 27, {""})
-DETROIT = newSongButton("DETROIT: BECOME HUMAN - OPENING", 11, {""})
-DIE_WITH = newSongButton("DIE WITH A SMILE", 27, {"lady gaga", "bruno mars"})
-DOG_SONG = newSongButton("DOG SONG", 27, {})
-DONT_STOP = newSongButton("DONT STOP BELIEVIN'", 21, {"journey"})
-DRAMAM = newSongButton("DRAMAMIME", 27, {"flawed mangoes"})
-DREAM_FL = newSongButton("DREAM FLOWER", 27, {"klydix"})
-DREAM_ON = newSongButton("DREAM ON", 27, {"aerosmith"})
-DROWNING_LOVE = newSongButton("DROWNING LOVE", 27, {"chasing kou"})
-DRY_HANDS = newSongButton("DRY HANDS", 27, {"c418"})
-DUMB_DUMB = newSongButton("DUMB DUMB", 27, {"everyone is dumb"})
-DUVET = newSongButton("DUVET", 27, {"boa"})
-EASY_ON_ME = newSongButton("EASY ON ME", 27, {"adele"})
-ELEVATOR_JAM = newSongButton("ELEVATOR JAM", 27, {"doors", "roblox", "lsplash"})
-ELEVATOR_JAM_2 = newSongButton("ELEVATOR JAM x HERE I COME", 15, {"doors", "roblox", "lsplash"})
-ENEMY = newSongButton("ENEMY", 27, {"imagine dragons", "arcane"})
-ENTRY_OF_THE = newSongButton("ENTRY OF THE GLADIATORS", 17, {"circus", "clown"})
-ERIKA = newSongButton("ERIKA", 27, {"nazi", "hitler", "german", "ww2", "world war 2"})
-EVERGREEN = newSongButton("EVERGREEN", 27, {""})
-EXPERIENCE = newSongButton("EXPERIENCE", 27, {})
-FADED = newSongButton("FADED", 27, {"ncs", "alan walker", "no copyright sounds"})
-FANTAISIE = newSongButton("FANTAISIE IMPROMPTU", 20, {"chopin", "hard"})
-FALLEN_DOWN = newSongButton("FALLEN DOWN", 27, {})
-FINAL_DUET = newSongButton("FINAL DUET", 27, {"omori"})
-FINALE = newSongButton("FINALE", 27, {})
-FIVE_NIGHTS_1 = newSongButton("FIVE NIGHTS AT FREDDYS 1", 18, {"fnaf", "five nights at freddys", "the living tombstone"})
-FLARE = newSongButton("FLARE", 27, {"hensonn", "sahara", "phonk"})
-FLASHING = newSongButton("FLASHING LIGHTS", 27, {"kanye west", "graduation"})
-FLY_ME_TO_THE_MOON = newSongButton("FLY ME TO THE MOON", 22, {"frank sinatra", "love", "squid game", "jazz"})
-FREEDOM_DIVE = newSongButton("FREEDOM DIVE", 27, {"xi"})
-FR = newSongButton("FROM THE START", 25, {"laufey", "love", "popular"})
-FREAKS = newSongButton("FREAKS", 27, {"surf curse"})
-FUKASHIGI = newSongButton("FUKASHIGI NO CARTE (BUNNY GIRL)", 13, {"senpai"})
-FUR_ELISE = newSongButton("FUR ELISE", 27, {"beethoven", "classical"})
-GANGSTAS_PARADISE = newSongButton("GANGSTA'S PARADISE", 22, {"coolio"})
-GEOMETRY_DASH = newSongButton("GEOMETRY DASH THEME (DASH)", 14, {"geometry dash"})
-GIORNO = newSongButton("GIORNO'S THEME", 27, {"popular"})
-GOLDENHOUR = newSongButton("GOLDEN HOUR", 27, {"jvke", "love, sad", "popular"})
-GOOD_MORNING = newSongButton("GOOD MORNING (OMORI)", 18, {"omori"})
-GOOFY_AHH = newSongButton("GOOFY AHH NPC MUSIC", 19, {"whistle"})
-GRAVITY_FALLS = newSongButton("GRAVITY FALLS", 27, {})
-GYPSY_WOMAN = newSongButton("GYPSY WOMAN", 27, {"crystal waters", "slickback", "slick back"})
-HAGGSTORM = newSongButton("HAGGSTORM", 27, {"c418"})
-HAPPIER = newSongButton("HAPPIER", 27, {"marshmello", "bastille"})
-HEARTACHE = newSongButton("HEARTACHE", 27, {})
-HEAT_WAVE = newSongButton("HEAT WAVE", 27, {"glass animals"})
-HEATHENS = newSongButton("HEATHENS", 27, {"twenty one pilots", "suicide squad"})
-HELLO = newSongButton("HELLO X I LOVE YOU", 25.5, {"omfg"})
-HERE_I_COME = newSongButton("HERE I COME", 27, {"doors", "roblox", "lsplash"})
-HERE_WITH = newSongButton("HERE WITH ME", 27, {"d4vd", "romantic homicide"})
-HES_A_PIRATE = newSongButton("HES A PIRATE", 27, {"hans zimmer", "pirates of the caribbean"})
-HIGH_HOPES = newSongButton("HIGH HOPES", 27, {"panic at the disco", "panic!", "house of memories"})
-HIMITSU_KOI_GOKORO = newSongButton("HIMITSU KOI GOKORO", 21, {"rent a girlfriend", "rent-a-girlfriend", "honeyworks"})
-LENAI = newSongButton("言えない", 27, {"rent a girlfriend", "rent-a-girlfriend", "lenai"})
-HH = newSongButton("HH", 27, {"kanye west", "heil hitler"})
-HIS_THEME = newSongButton("HIS THEME", 27, {})
-HIT_THE_ROAD = newSongButton("HIT THE ROAD, JACK", 24, {"shake"})
-HOPE = newSongButton("HOPE", 27, {"xxxtentacion"})
-HOPES_DREAMS = newSongButton("HOPES AND DREAMS", 23, {"asriel"})
-HOUSE_OF = newSongButton("HOUSE OF MEMORIES", 22, {"panic at the disco", "panic!", "high hopes"})
-HOWLS_MOVING_CASTLE = newSongButton("HOWLS MOVING CASTLE", 20, {"merry go round of life", "merry-go-round", "ghibli"})
-HOWLS_MOVING_CASTLE_2 = newSongButton("HOWLS MOVING CASTLE (EPIC VER.)", 13, {"merry go round of life", "merry-go-round", "ghibli"})
-HUNGARIAN = newSongButton("HUNGARIAN DANCE", 23, {})
-I_LIKE_THE_WAY_YOU = newSongButton("I LIKE THE WAY YOU KISS ME", 15, {"artemis"})
-I_WANT = newSongButton("I WANT IT THAT WAY", 24, {"backstreet boys"})
-SURVIVE = newSongButton("I WILL SURVIVE", 27, {""})
-IDGAF = newSongButton("IDGAF", 27, {"boywithuke", "blackbear"})
-IDOL = newSongButton("IDOL", 27, {"oshi no ko", "yoasobi"})
-IDOL_EPIC = newSongButton("IDOL (EPIC VER.)", 27, {"oshi no ko", "yoasobi"})
-IF_I_AM_WITH_YOU = newSongButton("IF I AM WITH YOU", 27, {"jjk", "jujitsu", "hollow purple"})
-IM_STILL = newSongButton("IM STILL STANDING", 26, {"sing", "elton john"})
-IMMORTAL = newSongButton("IMMORTAL", 27, {"playboi carti"})
-IN_THE_NAME = newSongButton("IN THE NAME OF LOVE", 22, {""})
-INSANE = newSongButton("INSANE", 27, {"hazbin hotel"})
-INTERSTELLAR = newSongButton("INTERSTELLAR", 27, {"hans zimmer", "cinematic", "movie", "popular"})
-ISABELLA = newSongButton("ISABELLA'S LULLABY", 24, {})
-ISOLATION = newSongButton("ISOLATION", 27, {"limbo", "geometry dash", "gd"})
-IT_MEANS = newSongButton("IT MEANS EVERYTHING", 20, {})
-ITS_BEEN_SO = newSongButton("ITS BEEN SO LONG", 27, {"the living tombstone", "five nights at freddys", "fnaf"})
-ITS_JUST_A_BURNING = newSongButton("ITS JUST A BURNING MEMORY", 15, {"the care taker", "the caretaker"})
-ITS_RAINING = newSongButton("ITS RAINING TACOS", 27, {})
-JOCELYN_FLORES = newSongButton("JOCELYN FLORES", 27, {"xxxtentacion"})
-KAWAIKUTEGOMEN = newSongButton("KAWAIKUTEGOMEN", 26, {"honeyworks"})
-KEROSENE = newSongButton("KEROSENE", 27, {"popular"})
-KEY = newSongButton("KEY", 27, {"c418"})
-L = newSongButton("L", 27, {"death note"})
-LA_CAMPANELLA = newSongButton("LA CAMPANELLA", 27, {"etude", "hard", "liszt"})
-LACRIMOSA = newSongButton("LACRIMOSA - REQUIEM", 22, {"mozart", "noot noot"})
-LALALA = newSongButton("LALALA", 27, {"bbno"})
-LET_ME_LOVE = newSongButton("LET ME LOVE YOU", 27, {"justin bieber", "dj snake"})
-LEVAN_POLKKA = newSongButton("LEVAN POLKKA", 27, {"hatsune miku", "vocaloid", "le van"})
-LEVELS = newSongButton("LEVELS", 27, {"avicii"})
-LIGHT_SWITCH = newSongButton("LIGHT SWITCH", 27, {"charlie puth"})
-LIGHTS = newSongButton("LIGHTS THEME", 27, {"death note"})
-LIVING_MICE = newSongButton("LIVING MICE", 27, {"c418"})
-LOST_LIBRARY = newSongButton("LOST LIBRARY", 27, {"omori"})
-LOST_UMB = newSongButton("LOST UMBRELLA", 27, {"cute depressed", "vocaloid"})
-LOVELY_B = newSongButton("LOVELY BASTARDS", 27, {"phonk"})
-LUTHER = newSongButton("LUTHER", 27, {"kendrick lamar", "sza", "GNX"})
-MA_MEILLEUR = newSongButton("MA MEILLEUR ENEMIE", 22, {"stromae", "arcane"})
-MAGICAL_CURE = newSongButton("M@GICAL CURE! LOVE SHOT!", 15, {"miku", "vocaloid", "hatsune miku", "magical cure"})
-MARI_BOSS = newSongButton("MARI BOSS FIGHT", 25, {"omori"})
-MARRIED = newSongButton("MARRIED LIFE", 27, {"movie", "up"})
-MARY_ON = newSongButton("MARY ON A CROSS", 27, {""})
-MEGALOVANIA = newSongButton("MEGALOVANIA", 27, {"popular"})
-METAMORPH = newSongButton("METAMORPHOSIS", 27, {"phonk"})
-MICE_ON = newSongButton("MICE ON VENUS", 27, {"c418"})
-MII = newSongButton("MII CHANNEL THEME", 22, {"wii"})
-MIKU = newSongButton("MIKU", 27, {"vocaloid"})
-MINECRAFT = newSongButton("MINECRAFT", 27, {"c418"})
-MONODY = newSongButton("MONODY", 27, {"ncs", "no copyright sounds", "thefatrat"})
-MONTAGEM_TOMADA = newSongButton("MONTAGEM TOMADA", 23, {"phonk"})
-MOOD = newSongButton("MOOD", 27, {"24kgoldn"})
-MOOG_CITY = newSongButton("MOOG CITY", 27, {"c418"})
-MOONLIGHT = newSongButton("MOONLIGHT SONATA - FIRST MOVEMENT", 10, {"beethoven"})
-M3 = newSongButton("MOONLIGHT SONATA - THIRD MOVEMENT", 10, {"beethoven"})
-MY_ORDINARY_LIFE = newSongButton("MY ORDINARY LIFE", 26, {"the living tombstone"})
-GIVE_UP = newSongButton("NEVER GONNA GIVE YOU UP", 17, {"rick astley", "rickroll", "rick roll"})
-NEVER_MEANT = newSongButton("NEVER MEANT TO BELONG", 18, {"bleach"})
-NOCTURNE = newSongButton("NOCTURNE", 27, {"chopin"})
-NOT_A_SLACKER = newSongButton("NOT A SLACKER ANYMORE", 18, {})
-NOT_LIKE_US = newSongButton("NOT LIKE US", 27, {"kendrick lamar", "drake"})
-NOTION = newSongButton("NOTION", 27, {"the rare occasions"})
-NYEH = newSongButton("NYEH HEH HEH!", 27, {"papyrus"})
-ONCE_UPON = newSongButton("ONCE UPON A TIME", 26, {""})
-PAST_LIVES = newSongButton("PAST LIVES", 27, {""})
-PEACHES = newSongButton("PEACHES", 27, {"jack black", "bowser", "super mario bros"})
-POKEMON = newSongButton("POKEMON MAIN THEME", 18, {""})
-POKEMON_RED = newSongButton("POKEMON RED AND BLUE", 18, {""})
-PRAYER = newSongButton("PRAYER", 27, {"kendrick lamar", "damn"})
-RACING_INTO = newSongButton("RACING INTO THE NIGHT", 20, {"yoasobi"})
-RATDANCE = newSongButton("RAT DANCE", 27, {"chess"})
-RESONANCE = newSongButton("RESONANCE", 27, {"home"})
-RISE_UP = newSongButton("RISE UP", 27, {"thefatrat", "ncs", "no copyright sounds"})
-RISES_THE = newSongButton("RISES THE MOON", 27, {"liana flores"})
-RIVER_FLOWS = newSongButton("RIVER FLOWS IN YOU", 23, {""})
-ROMANTIC_HOMICIDE = newSongButton("ROMANTIC HOMICIDE", 22, {"dv4d", "here with me"})
-RUINS = newSongButton("RUINS", 27, {})    
-RUNAWAY = newSongButton("RUNAWAY", 27, {"kanye", "popular", "rap", "hip"})
-RUNNING_UP = newSongButton("RUNNING UP THAT HILL", 19, {"stranger things"})
-RUSHE = newSongButton("RUSH E", 27, {"sheet music boss"})
-SANS = newSongButton("SANS.", 27, {"undertale"})
-SAVE_YOUR = newSongButton("SAVE YOUR TEARS", 27, {"weeknd"})
-SEE_YOU_AGAIN = newSongButton("SEE YOU AGAIN", 27, {"tyler the creator", "kali urchis", "tyler, the creator", "flower boy"})
-SHAPE_OF = newSongButton("SHAPE OF YOU", 27, {"ed sheeran"})
-SHIAWASE = newSongButton("SHIAWASE (VIP)", 27, {"tidal wave", "geometry dash"})
-SHIKAIRO = newSongButton("SHIKAIRO DAYS", 27, {"my dear friend nokotan"})
-SHOP = newSongButton("SHOP", 27, {})
-SICK_OF_U = newSongButton("SICK OF U", 27, {"boywithuke"})
-SKYFALL = newSongButton("SKYFALL", 27, {"adele"})
-SLAY = newSongButton("SLAY", 27, {"eternxlz", "phonk"})
-SNOWFALL = newSongButton("SNOWFALL", 27, {"oneheart"})
-SNOWY = newSongButton("SNOWY", 27, {})
-SOLAS = newSongButton("SOLAS", 27, {"sad"})
-SOVIET_UNION_ANTHEM = newSongButton("SOVIET UNION ANTHEM", 19, {})
-SOMEBODY_THAT_I_USED = newSongButton("SOMEBODY THAT I USED TO KNOW", 13, {"gotye"})
-SOMETHING_JUST = newSongButton("SOMETHING JUST LIKE THIS", 17, {"the chainsmokers"})
-SONG_THAT_MIGHT = newSongButton("SONG THAT MIGHT PLAY WHEN YOU FIGHT SANS", 9.5, {"undertale"})
-SPACE_SONG = newSongButton("SPACE SONG", 27, {"beach house"})
-SPARKLE = newSongButton("SPARKLE", 27, {"radwimps", "your name", "kimi no na wa"})
-SPEAR_OF = newSongButton("SPEAR OF JUSTICE", 26, {})
-SPECTRE = newSongButton("SPECTRE", 27, {"alan walker", "ncs", "no copyright sounds", "smurf cat"})
-SPIDER_DANCE = newSongButton("SPIDER DANCE", 27, {"muffet"})
-STAY = newSongButton("STAY", 27, {"justin bieber", "kid laroi"})
-STEREO_HEARTS = newSongButton("STEREO HEARTS", 27, {"gym class heroes", "adam levine"})
-STEREO_MADNESS = newSongButton("STEREO MADNESS", 27, {"geometry dash"})
-STRANGER_THINGS = newSongButton("STRANGER THINGS", 26, {})
-STRANGERS = newSongButton("STRANGERS", 27, {"kenya grace"})
-SUBWOOFER = newSongButton("SUBWOOFER LULLABY", 20, {"c418"})
-SUGAR_PLUM = newSongButton("DANCE OF THE SUGAR PLUM FAIRY", 13, {"christmas", "hard"})
-SUNFLOWER = newSongButton("SUNFLOWER", 27, {"spider man", "post malone"})
-SUPER_IDOL = newSongButton("SUPER IDOL", 27, {})
-SUPER_MARIOS = newSongButton("SUPER MARIO BROS", 23, {""})
-SUZUME = newSongButton("SUZUME NO TOJIMARI", 22, {"suzume", "radwimps"})
-SWEATER_WEATHER = newSongButton("SWEATER WEATHER", 23, {"the neighbourhood", "love", "popular"})
-SWIMMING = newSongButton("SWIMMING", 27, {"flawed mangoes", "dramamime"})
-SWEDEN = newSongButton("SWEDEN", 27, {"c418"})
-THATS_WHAT_I_WANT = newSongButton("THATS WHAT I WANT", 23, {"lil nas x"})
-THE_AMAZING_DIGITAL = newSongButton("THE AMAZING DIGITAL CIRCUS", 15, {"pomni"})
-THE_BEN = newSongButton("THE BENONI", 27, {""})
-THE_ECSTASY_OF_GOLD = newSongButton("THE ECSTASY OF GOLD", 22, {"the good, the bad and the ugly", "the good the bad and the ugly"})
-THE_ENTERTAINER = newSongButton("THE ENTERTAINER", 25, {})
-THE_GREAT_FAIRY = newSongButton("THE GREAT FAIRY FOUNTAIN", 17, {"zelda", "the legend of zelda"})
-THE_NIGHTS = newSongButton("THE NIGHTS", 27, {"avicii"})
-THE_SLAUGHTER_CONT = newSongButton("THE SLAUGHTER CONTINUES", 16, {"undertale last breath", "last breath"})
-THE_WORLD = newSongButton("THE WORLD", 27, {"death note"})
-THICK_OF_IT = newSongButton("THICK OF IT", 27, {"nigga", "ksi", "shit", "popular"})
-THIS_IS_WHAT_HEARTBREAK = newSongButton("THIS IS WHAT HEARTBREAK FEELS LIKE", 11, {"jvke", "golden hour"})
-THIS_IS_WHAT_WINTER = newSongButton("THIS IS WHAT WINTER FEELS LIKE", 11.5, {"jvke", "golden hour"})
-TICKING = newSongButton("TICKING", 27, {""})
-TOXIC = newSongButton("TOXIC (BOYWITHUKE)", 22, {""})
-TRAP_R = newSongButton("TRAP ROYALTY", 27, {"fetty wap"})
-TURKISH = newSongButton("TURKISH MARCH", 27, {"mozart", "rondo alla turca"})
-UNDERSTAND = newSongButton("UNDERSTAND", 27, {"boywithuke"})
-UNDERTALE = newSongButton("UNDERTALE", 27, {})
-UNDERWATER = newSongButton("UNDERWATER PROM QUEENS", 14, {"omori"})
-UNITY = newSongButton("UNITY", 27, {"thefatrat", "ncs", "no copyright sounds"}) 
-UNRAVEL = newSongButton("UNRAVEL", 27, {"tokyo ghoul"})
-UNRAVEL_EPIC = newSongButton("UNRAVEL (EPIC VER.)", 22, {"tokyo ghoul", "animenz"})
-UNTITLED = newSongButton("UNTITLED", 27, {"oobja main theme", "cooked"})
-VAMPIRE = newSongButton("VAMPIRE", 27, {"olivia rodrigo"})
-VIVA_LA_VIDA = newSongButton("VIVA LA VIDA", 27, {"coldplay"})
-WAITING_FOR = newSongButton("WAITING FOR LOVE", 26, {"avicii"})
-WAKE_ME = newSongButton("WAKE ME UP", 27, {"avicii"})
-WASHING = newSongButton("WASHING MACHINE HEART", 18, {"mitski"})
-WE_DONT = newSongButton("WE DONT TALK ABOUT BRUNO", 15, {"encanto"})
-WEDDING_MARCH = newSongButton("WEDDING MARCH", 27, {"wedding"})
-WET_HANDS = newSongButton("WET HANDS", 27, {"c418"})
-WHERE_WE = newSongButton("WHERE WE PLAYED", 25, {"omori"})
-WHY_DID_I_SAY = newSongButton("WHY DID I SAY OKIE-DOKIE", 17, {"doki doki literature club", "ddlc"})
-WII_SPORTS_TITLE = newSongButton("WII SPORTS TITLE THEME", 18, {"wii sports", "nintendo"})
-WINTER_WIND = newSongButton("WINTER WIND (ETUDE OP.25 NO.11)", 13, {"chopin", "hard"})
-WORLDS_END = newSongButton("WORLDS END VALENTINE", 18, {"omori"})
-XO_TOUR = newSongButton("XO TOUR LLIF3", 27, {"lil uzi vert"})
-YOUNG_GIRL_A = newSongButton("YOUNG GIRL A", 27, {"siinamota", "vocaloid"})
-YOUNG_GIRL_A_2 = newSongButton("YOUNG GIRL A (EPIC VER.)", 16, {"siinamota", "vocaloid"})
-YOUR_REALITY = newSongButton("YOUR REALITY", 27, {"ddlc", "doki"})
-MANGOMANGOMANGO = newSongButton("MANGO MANGO MANGO", 27, {""})
-DEATH_WALTZ = newSongButton("DEATH WALTZ (WARNING)", 19, {""})
+-- Categories chips
+local ALL_CATS = {"all", "epic", "beautiful", "best", "peak", "sad", "memes", "anime/jpop", "video games", "minecraft", "undertale", "pop/hiphop", "electronic", "classical", "custom"}
+local catButtons = {}
 
-local framebuttons = {}
-
-for _, button in ipairs(frame:GetChildren()) do
-    if button:IsA("TextButton") then
-        table.insert(framebuttons, button)
+local function setCategory(cat)
+    activeCategory = cat
+    for name, b in pairs(catButtons) do
+        b.BackgroundColor3 = (name == cat) and Color3.fromRGB(255, 120, 160) or Color3.fromRGB(45, 45, 55)
     end
-end
-
-table.sort(
-    framebuttons,
-    function(a, b)
-        return a.Name:lower() < b.Name:lower()
-    end
-)
-
-for index, button in ipairs(framebuttons) do
-    button.LayoutOrder = index
-end
-
-local songs = {
-    {button = INTERSTELLAR, bpm = "104", var = false, url = "INTERSTELLAR", cat = {"epic", "beautiful"}},
-    {button = RUSHE, bpm = "80", var = false, url = "RUSH_E", cat = {"memes"}},
-    {button = GOLDENHOUR, bpm = "94", var = false, url = "GOLDEN_HOUR", cat = {"beautiful", "best"}},
-    {button = CUPID, bpm = "120", var = false, url = "CUPID", cat = {"pop/hiphop"}},
-    {button = RATDANCE, bpm = "120", var = false, url = "RAT_DANCE", cat = {"memes"}},
-    {button = RUNAWAY, bpm = "85", var = false, url = "RUNAWAY", cat = {"pop/hiphop"}},
-    {button = YOUR_REALITY, bpm = "105", var = false, url = "YOUR_REALITY", cat = {"video games", "beautiful", "best"}},
-    {button = ANOTHER_LOVE, bpm = "123", var = false, url = "ANOTHER_LOVE", cat = {"sad", "best", "epic", "beautiful", "pop/hiphop"}},
-    {button = FINAL_DUET, bpm = "84", var = false, url = "FINAL_DUET", cat = {"video games", "omori"}},
-    {button = EXPERIENCE, bpm = "92", var = false, url = "EXPERIENCE", cat = {"epic", "best", "beautiful", "peak"}},
-    {button = CAN_YOU_HEAR, bpm = "80", var = false, url = "CAN_YOU_HEAR_THE_FUCKING_MUSIC", cat = {"epic"}},
-    {button = HOWLS_MOVING_CASTLE, bpm = "156", var = false, url = "HOWLS_MOVING_CASTLE", cat = {"anime/jpop", "beautiful"}},
-    {button = YOUNG_GIRL_A, bpm = "130", var = false, url = "YOUNG_GIRL_A", cat = {"anime/jpop", "sad", "beautiful", "best"}},
-    {button = ARIA_MATH, bpm = "84", var = false, url = "ARIA_MATH", cat = {"video games", "minecraft", "beautiful"}},
-    {button = ALL_MY_FELLAS, bpm = "160", var = false, url = "ALL_MY_FELLAS", cat = {"memes"}},
-    {button = THICK_OF_IT, bpm = "146", var = false, url = "THICK_OF_IT", cat = {"memes"}},
-    {button = ROMANTIC_HOMICIDE, bpm = "132", var = false, url = "ROMANTIC_HOMICIDE", cat = {"sad"}},
-    {button = IF_I_AM_WITH_YOU, bpm = "82", var = false, url = "IF_I_AM_WITH_YOU", cat = {"anime/jpop", "best", "beautiful", "peak"}},
-    {button = CRADLES, bpm = "79", var = false, url = "CRADLES", cat = {"electronic"}},
-    {button = IDOL, bpm = "166", var = false, url = "IDOL", cat = {"anime/jpop", "best"}},
-    {button = RIVER_FLOWS, bpm = "137", var = false, url = "RIVER_FLOWS_IN_YOU", cat = {"sad"}},
-    {button = NOCTURNE, bpm = "62", var = false, url = "NOCTURNE", cat = {"classical", "best"}},
-    {button = ISABELLA, bpm = "112", var = false, url = "ISABELLAS_LULLABY", cat = {"video games"}},
-    {button = GIORNO, bpm = "135", var = false, url = "GIORNO", cat = {"anime/jpop", "memes"}},
-    {button = GIVE_UP, bpm = "113", var = false, url = "GIVE_UP", cat = {"memes", "pop/hiphop"}},
-    {button = UNRAVEL, bpm = "135", var = false, url = "UNRAVEL", cat = {"anime/jpop", "beautiful"}},
-    {button = WINTER_WIND, bpm = "125", var = false, url = "WINTER_WIND", cat = {"classical"}},
-    {button = SWEATER_WEATHER, bpm = "124", var = false, url = "SWEATER_WEATHER", cat = {"sad"}},
-    {button = VIVA_LA_VIDA, bpm = "138", var = false, url = "VIVA_LA_VIDA", cat = {"epic", "beautiful", "best"}},
-    {button = M3, bpm = "163", var = false, url = "WHAT_THE_FUCKK", cat = {"classical", "best", "peak"}},
-    {button = NEVER_MEANT, bpm = "66", var = false, url = "NEVER_MEANT", cat = {"anime/jpop"}},
-    {button = AVENGERS, bpm = "120", var = false, url = "AVENGERS", cat = {"epic", "best"}},
-    {button = BEETHOVEN_VIRUS, bpm = "162", var = false, url = "BEETHOVEN_VIRUS", cat = {"classical", "electronic", "best", "peak"}},
-    {button = LA_CAMPANELLA, bpm = "107", var = false, url = "LA_CAMPANELLA", cat = {"classical", "best", "beautiful"}},
-    {button = KEROSENE, bpm = "116", var = false, url = "KEROSENE", cat = {"electronic"}},
-    {button = RACING_INTO, bpm = "129", var = false, url = "RACING_INTO", cat = {"anime/jpop", "best", "beautiful"}},
-    {button = SURVIVE, bpm = "117", var = false, url = "SURVIVE", cat = {""}},
-    {button = MEGALOVANIA, bpm = "120", var = false, url = "MEGALOVANIA", cat = {"video games", "undertale", "memes"}},
-    {button = COCONUT, bpm = "132", var = false, url = "COCONUT", cat = {"video games"}},
-    {button = FADED, bpm = "90", var = false, url = "FADED", cat = {"electronic", "sad"}},
-    {button = SOLAS, bpm = "120", var = false, url = "SOLAS", cat = {"beautiful"}},
-    {button = MARRIED, bpm = "83", var = false, url = "MARRIED", cat = {"sad"}},
-    {button = BAD_PIGGIES, bpm = "156", var = false, url = "BAD_PIGGIES", cat = {"video games"}},
-    {button = ASGORE, bpm = "115", var = false, url = "ASGORE", cat = {"video games", "undertale"}},
-    {button = CARELESS, bpm = "153", var = false, url = "CARELESS", cat = {"memes"}},
-    {button = I_WANT, bpm = "122", var = false, url = "I_WANT", cat = {"pop/hiphop", "rock"}},
-    {button = IM_STILL, bpm = "177", var = false, url = "IM_STILL", cat = {"best", "rock"}},
-    {button = HELLO, bpm = "105", var = false, url = "HELLO", cat = {"electronic"}},
-    {button = BAD_APPLE, bpm = "138", var = false, url = "BAD_APPLE", cat = {"anime/jpop"}},
-    {button = FR, bpm = "82", var = false, url = "FR", cat = {"all"}},
-    {button = DIE_WITH, bpm = "152", var = false, url = "DIE_WITH", cat = {"pop/hiphop", "sad", "beautiful", "best", "peak"}},
-    {button = FALLEN_DOWN, bpm = "110", var = false, url = "FALLEN_DOWN", cat = {"video games", "undertale", "beautiful"}},
-    {button = ENIGMATIC, bpm = "50", var = false, url = "ENIGMATIC", cat = {"video games", "undertale", "best", "peak"}},
-    {button = DEATH_WALTZ, bpm = "210", var = false, url = "DEATH_WALTZ", cat = {"all"}},
-    {button = MIKU, bpm = "135", var = false, url = "MIKU", cat = {"anime/jpop"}},
-    {button = A_THOUSAND, bpm = "100", var = false, url = "A_THOUSAND", cat = {"pop/hiphop"}},
-    {button = SUGAR_PLUM, bpm = "70", var = false, url = "SUGAR_PLUM", cat = {"classical"}},
-    {button = SPEED_OF, bpm = "162", var = false, url = "SPEED_OF", cat = {"video games", "electronic", "epic", "best", "peak"}},
-    {button = WET_HANDS, bpm = "74", var = false, url = "WET_HANDS", cat = {"video games", "minecraft", "beautiful"}},
-    {button = SWEDEN, bpm = "44", var = false, url = "SWEDEN", cat = {"video games", "minecraft"}},
-    {button = SUBWOOFER, bpm = "76", var = false, url = "SUBWOOFER", cat = {"video games", "minecraft"}},
-    {button = MICE_ON, bpm = "56", var = false, url = "MICE_ON", cat = {"video games", "minecraft", "sad"}},
-    {button = DRY_HANDS, bpm = "90", var = false, url = "DRY_HANDS", cat = {"video games", "minecraft", "beautiful"}},
-    {button = HAGGSTORM, bpm = "102", var = false, url = "HAGGSTORM", cat = {"video games", "minecraft"}},
-    {button = LIVING_MICE, bpm = "74", var = false, url = "LIVING_MICE", cat = {"video games", "minecraft"}},
-    {button = KEY, bpm = "70", var = false, url = "KEY", cat = {"video games", "minecraft", "beautiful"}},
-    {button = MOOG_CITY, bpm = "116", var = false, url = "MOOG_CITY", cat = {"video games", "minecraft", "beautiful", "best"}},
-    {button = MINECRAFT, bpm = "106", var = false, url = "MINECRAFT", cat = {"video games", "minecraft"}},
-    {button = UNDERTALE, bpm = "100", var = false, url = "UNDERTALE", cat = {"video games", "undertale", "best", "epic"}},
-    {button = HOPES_DREAMS, bpm = "170", var = false, url = "HOPES_DREAMS", cat = {"video games", "undertale", "best", "epic", "peak"}},
-    {button = NYEH, bpm = "150", var = false, url = "NYEH", cat = {"video games", "undertale", "best"}},
-    {button = SPIDER_DANCE, bpm = "115", var = false, url = "SPIDER_DANCE", cat = {"video games", "undertale"}},
-    {button = HEARTACHE, bpm = "160", var = false, url = "HEARTACHE", cat = {"video games", "undertale"}},
-    {button = BATTLE_AGAINST, bpm = "150", var = false, url = "BATTLE_AGAINST", cat = {"video games", "undertale"}},
-    {button = HIS_THEME, bpm = "90", var = false, url = "HIS_THEME", cat = {"video games", "undertale"}},
-    {button = SNOWY, bpm = "120", var = false, url = "SNOWY", cat = {"video games", "undertale"}},
-    {button = SPEAR_OF, bpm = "130", var = false, url = "SPEAR_OF", cat = {"video games", "undertale", "best"}},
-    {button = DOG_SONG, bpm = "230", var = false, url = "DOG_SONG", cat = {"video games", "undertale"}},
-    {button = ONCE_UPON, bpm = "65", var = false, url = "ONCE_UPON", cat = {"video games", "undertale"}},
-    {button = NOT_A_SLACKER, bpm = "145", var = false, url = "NOT_A_SLACKER", cat = {"video games", "undertale"}},
-    {button = SHOP, bpm = "77", var = false, url = "SHOP", cat = {"video games", "undertale"}},
-    {button = FINALE, bpm = "190", var = false, url = "FINALE", cat = {"video games", "undertale"}},
-    {button = BY_YOUR_SIDE, bpm = "88", var = false, url = "BY_YOUR_SIDE", cat = {"video games", "omori"}},
-    {button = WORLDS_END, bpm = "152", var = false, url = "WORLDS_END", cat = {"video games", "omori", "best"}},
-    {button = LOST_LIBRARY, bpm = "62", var = false, url = "LOST_LIBRARY", cat = {"video games", "omori"}},
-    {button = BREADY, bpm = "160", var = false, url = "BREADY", cat = {"video games", "omori", "best"}},
-    {button = IT_MEANS, bpm = "96", var = false, url = "IT_MEANS", cat = {"video games", "omori"}},
-    {button = UNDERWATER, bpm = "160", var = false, url = "UNDERWATER", cat = {"video games", "omori"}},
-    {button = WHERE_WE, bpm = "96", var = false, url = "WHERE_WE", cat = {"video games", "omori"}},
-    {button = MARI_BOSS, bpm = "169", var = false, url = "MARI_BOSS", cat = {"video games", "omori"}},
-    {button = GOOD_MORNING, bpm = "90", var = false, url = "GOOD_MORNING", cat = {"video games", "omori"}},
-    {button = FUR_ELISE, bpm = "72", var = false, url = "FUR_ELISE", cat = {"classical"}},
-    {button = MOONLIGHT, bpm = "51", var = false, url = "MOONLIGHT", cat = {"classical"}},
-    {button = FANTAISIE, bpm = "168", var = false, url = "FANTAISIE", cat = {"classical"}},
-    {button = DROWNING_LOVE, bpm = "112", var = false, url = "DROWNING_LOVE", cat = {"beautiful", "sad", "best", "peak"}},
-    {button = CANON_D, bpm = "100", var = false, url = "CANON_D", cat = {"classical"}},
-    {button = FREEDOM_DIVE, bpm = "220", var = false, url = "FREEDOM_DIVE", cat = {"electronic"}},
-    {button = STAY, bpm = "85", var = false, url = "STAY", cat = {"pop/hiphop"}},
-    {button = TURKISH, bpm = "92", var = false, url = "TURKISH", cat = {"classical"}},
-    {button = SUPER_MARIOS, bpm = "180", var = false, url = "SUPER_MARIOS", cat = {"video games", "memes"}},
-    {button = MII, bpm = "114", var = false, url = "MII", cat = {"video games", "memes"}},
-    {button = LACRIMOSA, bpm = "64", var = false, url = "LACRIMOSA", cat = {"classical", "memes"}},
-    {button = DESPACITO, bpm = "89", var = false, url = "DESPACITO", cat = {"pop/hiphop", "memes"}},
-    {button = WE_DONT, bpm = "103", var = false, url = "WE_DONT", cat = {}},
-    {button = HUNGARIAN, bpm = "130", var = false, url = "HUNGARIAN", cat = {"classical"}},
-    {button = SKYFALL, bpm = "70", var = false, url = "SKYFALL", cat = {"epic", "best"}},
-    {button = THE_ENTERTAINER, bpm = "60", var = false, url = "THE_ENTERTAINER", cat = {"memes", "best"}},
-    {button = DONT_STOP, bpm = "118", var = false, url = "DONT_STOP", cat = {"rock", "best"}},
-    {button = DREAM_ON, bpm = "78", var = false, url = "DREAM_ON", cat = {"rock"}},
-    {button = HIT_THE_ROAD, bpm = "60", var = false, url = "HIT_THE_ROAD", cat = {"rock"}},
-    {button = TOXIC, bpm = "180", var = false, url = "TOXIC", cat = {"sad", "pop/hiphop"}},
-    {button = UNDERSTAND, bpm = "206", var = false, url = "UNDERSTAND", cat = {"sad"}},
-    {button = SICK_OF_U, bpm = "185", var = false, url = "SICK_OF_U", cat = {"sad"}},
-    {button = IDGAF, bpm = "196", var = false, url = "IDGAF", cat = {"sad"}},
-    {button = EASY_ON_ME, bpm = "73", var = false, url = "EASY_ON_ME", cat = {"", "pop/hiphop"}},
-    {button = METAMORPH, bpm = "180", var = false, url = "METAMORPH", cat = {"electronic"}},
-    {button = SWIMMING, bpm = "165", var = false, url = "SWIMMING", cat = {"beautiful", "best"}},
-    {button = DRAMAM, bpm = "224", var = false, url = "DRAMAM", cat = {"beautiful"}},
-    {button = LOST_UMB, bpm = "133", var = false, url = "LOST_UMB", cat = {"electronic", "anime/jpop"}},
-    {button = LOVELY_B, bpm = "150", var = false, url = "LOVELY_B", cat = {"memes", "best"}},
-    {button = TRAP_R, bpm = "151", var = false, url = "TRAP_R", cat = {"memes", "epic", "best", "beautiful"}},
-    {button = MANGOMANGOMANGO, bpm = "110", var = false, url = "MANGOMANGOMANGO", cat = {"peak"}},
-    {button = DREAM_FL, bpm = "150", var = false, url = "DREAM_FL", cat = {"electronic"}},
-    {button = LALALA, bpm = "130", var = false, url = "LALALA", cat = {"pop/hiphop"}},
-    {button = THE_BEN, bpm = "180", var = false, url = "THE_BEN", cat = {"classical", "epic", "best"}},
-    {button = POKEMON, bpm = "160", var = false, url = "POKEMON", cat = {"video games", "anime/jpop"}},
-    {button = POKEMON_RED, bpm = "180", var = false, url = "POKEMON_RED", cat = {"video games", "anime/jpop"}},
-    {button = FLASHING, bpm = "100", var = false, url = "FLASHING", cat = {"pop/hiphop", "epic", "beautiful"}},
-    {button = ALL_GIRLS, bpm = "85", var = false, url = "ALL_GIRLS", cat = {"pop/hiphop", "sad", "best"}},
-    {button = SAVE_YOUR, bpm = "120", var = false, url = "SAVE_YOUR", cat = {"pop/hiphop", "sad"}},
-    {button = LIGHTS, bpm = "132", var = false, url = "LIGHTS", cat = {"anime/jpop"}},
-    {button = THE_WORLD, bpm = "96", var = false, url = "THE_WORLD", cat = {"anime/jpop", "rock"}},
-    {button = L, bpm = "71", var = false, url = "L", cat = {"anime/jpop", "memes"}},
-    {button = BLOODY, bpm = "100", var = false, url = "BLOODY", cat = {"pop/hiphop", "epic", "best"}},
-    {button = SPACE_SONG, bpm = "75", var = false, url = "SPACE_SONG", cat = {"sad", "pop/hiphop"}},
-    {button = HEATHENS, bpm = "90", var = false, url = "HEATHENS", cat = {"sad"}},
-    {button = VAMPIRE, bpm = "135", var = false, url = "VAMPIRE", cat = {"pop/hiphop", "sad", "best"}},
-    {button = MARY_ON, bpm = "130", var = false, url = "MARY_ON", cat = {"rock"}},
-    {button = RUNNING_UP, bpm = "108", var = false, url = "RUNNING_UP", cat = {"sad", "pop/hiphop"}},
-    {button = DUMB_DUMB, bpm = "118", var = false, url = "DUMB_DUMB", cat = {"memes"}},
-    {button = MA_MEILLEUR, bpm = "178", var = false, url = "MA_MEILLEUR", cat = {"memes"}},
-    {button = SUZUME, bpm = "78", var = false, url = "SUZUME", cat = {"anime/jpop", "best", "beautiful"}},
-    {button = CHRISTMAS_KIDS, bpm = "152", var = false, url = "CHRISTMAS_KIDS", cat = {"sad"}},
-    {button = DARK_BEACH, bpm = "130", var = false, url = "DARK_BEACH", cat = {"sad", "beautiful"}},
-    {button = FUKASHIGI, bpm = "90", var = false, url = "FUKASHIGI", cat = {"anime/jpop"}},
-    {button = SPARKLE, bpm = "192", var = false, url = "SPARKLE", cat = {"anime/jpop", "best", "beautiful"}},
-    {button = SHIKAIRO, bpm = "182", var = false, url = "SHIKAIRO", cat = {"anime/jpop", "memes", "best"}},
-    {button = WASHING, bpm = "114", var = false, url = "WASHING", cat = {"sad"}},
-    {button = CAN_YOU_HEAR_EPIC, bpm = "102", var = false, url = "CAN_YOU_HEAR_EPIC", cat = {"epic", "best", "peak"}},
-    {button = UNRAVEL_EPIC, bpm = "132", var = false, url = "UNRAVEL_EPIC", cat = {"epic", "best", "beautiful", "peak"}},
-    {button = A_SKY_FULL, bpm = "120", var = false, url = "A_SKY_FULL", cat = {"epic", "pop/hiphop"}},
-    {button = THE_NIGHTS, bpm = "128", var = false, url = "THE_NIGHTS", cat = {"pop/hiphop", "electronic", "epic"}},
-    {button = BIRDS_OF_A, bpm = "105", var = false, url = "BIRDS_OF_A", cat = {"pop/hiphop", "beautiful"}},
-    {button = CANT_LET, bpm = "160", var = false, url = "CANT_LET", cat = {"video games", "electronic"}},
-    {button = DEADLOCKED, bpm = "140", var = false, url = "DEADLOCKED", cat = {"video games", "electronic"}},
-    {button = DUVET, bpm = "91", var = false, url = "DUVET", cat = {"sad", "beautiful", "best"}},
-    {button = FIVE_NIGHTS_1, bpm = "108", var = false, url = "FIVE_NIGHTS_1", cat = {"video games", "electronic", "epic"}},
-    {button = ITS_BEEN_SO, bpm = "96", var = false, url = "ITS_BEEN_SO", cat = {"video games", "electronic"}},
-    {button = STEREO_MADNESS, bpm = "160", var = false, url = "STEREO_MADNESS", cat = {"video games", "electronic"}},
-    {button = SUNFLOWER, bpm = "90", var = false, url = "SUNFLOWER", cat = {"pop/hiphop", "beautiful", "best"}},
-    {button = WAITING_FOR, bpm = "129", var = false, url = "WAITING_FOR", cat = {"pop/hiphop", "electronic", "best", "epic"}},
-    {button = WAKE_ME, bpm = "110", var = false, url = "WAKE_ME", cat = {"pop/hiphop", "electronic"}},
-    {button = GEOMETRY_DASH, bpm = "128", var = false, url = "GEOMETRY_DASH", cat = {"video games", "electronic"}},
-    {button = ARUARIAN, bpm = "80", var = false, url = "ARUARIAN", cat = {"beautiful"}},
-    {button = DAYLIGHT, bpm = "130", var = false, url = "DAYLIGHT", cat = {"beautiful", "epic", "best"}},
-    {button = SHIAWASE, bpm = "150", var = false, url = "SHIAWASE", cat = {"electronic", "epic", "beautiful", "best"}},
-    {button = EVERGREEN, bpm = "120", var = false, url = "EVERGREEN", cat = {"beautiful", "best"}},
-    {button = FREAKS, bpm = "175", var = false, url = "FREAKS", cat = {"sad", "rock", "beautiful"}},
-    {button = HERE_WITH, bpm = "132", var = false, url = "HERE_WITH", cat = {"sad"}},
-    {button = RESONANCE, bpm = "70", var = false, url = "RESONANCE", cat = {"beautiful", "best"}},
-    {button = INSANE, bpm = "105", var = false, url = "INSANE", cat = {"electronic"}},
-    {button = LEVELS, bpm = "122", var = false, url = "LEVELS", cat = {"electronic", "levels", "best"}},
-    {button = MOOD, bpm = "91", var = false, url = "MOOD", cat = {"pop/hiphop", "best"}},
-    {button = SOMETHING_JUST, bpm = "103", var = false, url = "SOMETHING_JUST", cat = {"pop/hiphop", "sad", "best", "beautiful"}},
-    {button = STRANGERS, bpm = "170", var = false, url = "STRANGERS", cat = {"pop/hiphop", "sad", "best", "beautiful"}},
-    {button = TICKING, bpm = "77", var = false, url = "TICKING", cat = {"epic", "best", "beautiful"}},
-    {button = AFTER_DARK, bpm = "140", var = false, url = "AFTER_DARK", cat = {"sad", "beautiful"}},
-    {button = ANYONE_CAN, bpm = "100", var = false, url = "ANYONE_CAN", cat = {"sad"}},
-    {button = BLUE, bpm = "130", var = false, url = "BLUE", cat = {"pop/hiphop"}},
-    {button = CLOUD_9, bpm = "128", var = false, url = "CLOUD_9", cat = {"electronic"}},
-    {button = DAMNED, bpm = "95", var = false, url = "DAMNED", cat = {"video games"}},
-    {button = ASTRONAMIA, bpm = "120", var = false, url = "ASTRONAMIA", cat = {"memes", "electronic"}},
-    {button = COUNTING_STARS, bpm = "105", var = false, url = "COUNTING_STARS", cat = {"pop/hiphop", "sad"}},
-    {button = SHAPE_OF, bpm = "190", var = false, url = "SHAPE_OF", cat = {"pop/hiphop"}},
-    {button = ENEMY, bpm = "77", var = false, url = "ENEMY", cat = {"pop/hiphop"}},
-    {button = FLARE, bpm = "150", var = false, url = "FLARE", cat = {"electronic"}},
-    {button = THIS_IS_WHAT_WINTER, bpm = "115", var = false, url = "THIS_IS_WHAT_WINTER", cat = {"beautiful", "pop/hiphop", "best"}},
-    {button = HEAT_WAVE, bpm = "81", var = false, url = "HEAT_WAVE", cat = {"pop/hiphop"}},
-    {button = HIGH_HOPES, bpm = "164", var = false, url = "HIGH_HOPES", cat = {"pop/hiphop", "epic"}},
-    {button = HOUSE_OF, bpm = "112", var = false, url = "HOUSE_OF", cat = {"pop/hiphop"}},
-    {button = IN_THE_NAME, bpm = "134", var = false, url = "IN_THE_NAME", cat = {"pop/hiphop", "electronic", "best", "epic", "beautiful"}},
-    {button = PAST_LIVES, bpm = "110", var = false, url = "PAST_LIVES", cat = {"sad", "beautiful"}},
-    {button = SLAY, bpm = "120", var = false, url = "SLAY", cat = {"electronic"}},
-    {button = SNOWFALL, bpm = "96", var = false, url = "SNOWFALL", cat = {"beautiful", "sad", "best"}},
-    {button = RISE_UP, bpm = "82", var = false, url = "RISE_UP", cat = {"electronic", "epic"}},
-    {button = UNITY, bpm = "110", var = false, url = "UNITY", cat = {"electronic", "best"}},
-    {button = MONODY, bpm = "107", var = false, url = "MONODY", cat = {"electronic", "epic", "best"}},
-    {button = THIS_IS_WHAT_HEARTBREAK, bpm = "50", var = false, url = "THIS_IS_WHAT_HEARTBREAK", cat = {"sad", "pop/hiphop"}},
-    {button = CANDYLAND, bpm = "130", var = false, url = "CANDYLAND", cat = {"electronic", "best", "best"}},
-    {button = AS_IT_WAS, bpm = "174", var = false, url = "AS_IT_WAS", cat = {"pop/hiphop", "best"}},
-    {button = CENTIMETER, bpm = "140", var = false, url = "CENTIMETER", cat = {"anime/jpop"}},
-    {button = DETROIT, bpm = "60", var = false, url = "DETROIT", cat = {"video games", "beautiful"}},
-    {button = THE_GREAT_FAIRY, bpm = "80", var = false, url = "THE_GREAT_FAIRY", cat = {"video games"}},
-    {button = IMMORTAL, bpm = "60", var = false, url = "IMMORTAL", cat = {"pop/hiphop"}},
-    {button = XO_TOUR, bpm = "142", var = false, url = "XO_TOUR", cat = {"pop/hiphop", "sad"}},
-    {button = THE_ECSTASY_OF_GOLD, bpm = "85", var = false, url = "THE_ECSTASY_OF_GOLD", cat = {"epic", "beautiful"}},
-    {button = BLUE_YUNG, bpm = "92", var = false, url = "BLUE_YUNG", cat = {"beautiful", "best"}},
-    {button = HES_A_PIRATE, bpm = "207", var = false, url = "HES_A_PIRATE", cat = {"epic", "best"}},
-    {button = ITS_RAINING, bpm = "120", var = false, url = "ITS_RAINING", cat = {"memes"}},
-    {button = LET_ME_LOVE, bpm = "100", var = false, url = "LET_ME_LOVE", cat = {"pop/hiphop", "best", "beautiful"}},
-    {button = HAPPIER, bpm = "100", var = false, url = "HAPPIER", cat = {"pop/hiphop", "sad", "beautiful", "best"}},
-    {button = SANS, bpm = "120", var = false, url = "SANS", cat = {"video games", "undertale", "memes"}},
-    {button = THE_SLAUGHTER_CONT, bpm = "150", var = false, url = "THE_SLAUGHTER_CONT", cat = {"video games", "undertale"}},
-    {button = SONG_THAT_MIGHT, bpm = "120", var = false, url = "SONG_THAT_MIGHT", cat = {"video games", "undertale"}},
-    {button = ASSUMPTIONS, bpm = "126", var = false, url = "ASSUMPTIONS", cat = {"pop/hiphop", "memes", "electronic"}},
-    {button = DEATH_BED, bpm = "120", var = false, url = "DEATH_BED", cat = {"pop/hiphop", "sad", "beautiful"}},
-    {button = DAWN_OF, bpm = "72", var = false, url = "DAWN_OF", cat = {"video games"}},
-    {button = ELEVATOR_JAM, bpm = "146", var = false, url = "ELEVATOR_JAM", cat = {"video games"}},
-    {button = ELEVATOR_JAM_2, bpm = "146", var = false, url = "ELEVATOR_JAM_2", cat = {"video games", "epic", "best"}},
-    {button = HERE_I_COME, bpm = "144", var = false, url = "HERE_I_COME", cat = {"video games"}},
-    {button = MONTAGEM_TOMADA, bpm = "120", var = false, url = "MONTAGEM_TOMADA", cat = {"electronic"}},
-    {button = NOTION, bpm = "160", var = false, url = "NOTION", cat = {"rock", "sad"}},
-    {button = RISES_THE, bpm = "127", var = false, url = "RISES_THE", cat = {"sad", "beautiful"}},
-    {button = HIMITSU_KOI_GOKORO, bpm = "165", var = false, url = "HIMITSU_KOI_GOKORO", cat = {"anime/jpop"}},
-    {button = LENAI, bpm = "131", var = false, url = "LENAI", cat = {"anime/jpop"}},
-    {button = IDOL_EPIC, bpm = "166", var = false, url = "IDOL_EPIC", cat = {"anime/jpop", "epic", "best"}},
-    {button = ALL_THE_STARS, bpm = "120", var = false, url = "ALL_THE_STARS", cat = {"pop/hiphop", "beautiful", "best"}},
-    {button = HOPE, bpm = "146", var = false, url = "HOPE", cat = {"pop/hiphop", "sad", "beautiful", "best"}},
-    {button = ENTRY_OF_THE, bpm = "220", var = false, url = "ENTRY_OF_THE", cat = {"classical", "memes"}},
-    {button = LUTHER, bpm = "128", var = false, url = "LUTHER", cat = {"pop/hiphop"}},
-    {button = HOWLS_MOVING_CASTLE_2, bpm = "130", var = false, url = "HOWLS_MOVING_CASTLE_2", cat = {"anime/jpop", "beautiful", "best", "epic", "peak"}},
-    {button = MAGICAL_CURE, bpm = "120", var = false, url = "MAGICAL_CURE", cat = {"anime/jpop"}},
-    {button = NOT_LIKE_US, bpm = "101", var = false, url = "NOT_LIKE_US", cat = {"pop/hiphop", "memes"}},
-    {button = PEACHES, bpm = "92", var = false, url = "PEACHES", cat = {"video games"}},
-    {button = PRAYER, bpm = "147", var = false, url = "PRAYER", cat = {"beautiful", "pop/hiphop"}},
-    {button = SEE_YOU_AGAIN, bpm = "70", var = false, url = "SEE_YOU_AGAIN", cat = {"pop/hiphop", "sad", "beautiful"}},
-    {button = GANGSTAS_PARADISE, bpm = "80", var = false, url = "GANGSTAS_PARADISE", cat = {"pop/hiphop", "memes", "beautiful", "best", "epic", "peak"}},
-    {button = ERIKA, bpm = "120", var = false, url = "ERIKA", cat = {"memes"}},
-    {button = ITS_JUST_A_BURNING, bpm = "74", var = false, url = "ITS_JUST_A_BURNING", cat = {"memes", "sad"}},
-    {button = ALL_I_WANT_IS_YOU, bpm = "143", var = false, url = "ALL_I_WANT_IS_YOU", cat = {"pop/hiphop", "sad", "best", "electronic"}},
-    {button = SOVIET_UNION_ANTHEM, bpm = "80", var = false, url = "SOVIET_UNION_ANTHEM", cat = {"memes"}},
-    {button = UNTITLED, bpm = "25", var = false, url = "UNTITLED", cat = {"video games", "memes", "sad"}},
-    {button = WEDDING_MARCH, bpm = "115", var = false, url = "WEDDING_MARCH", cat = {"memes", "beautiful", "classical"}},
-    {button = WHY_DID_I_SAY, bpm = "113", var = false, url = "WHY_DID_I_SAY", cat = {}},
-    {button = WII_SPORTS_TITLE, bpm = "115", var = false, url = "WII_SPORTS_TITLE", cat = {"video games", "memes", "epic"}},
-    {button = YOUNG_GIRL_A_2, bpm = "130", var = false, url = "YOUNG_GIRL_A_2", cat = {"anime/jpop", "sad", "epic", "best", "beautiful", "peak"}},
-    {button = BLINDING_LIGHTS, bpm = "171", var = false, url = "BLINDING_LIGHTS", cat = {"pop/hiphop", "best"}},
-    {button = GOOFY_AHH, bpm = "120", var = false, url = "GOOFY_AHH", cat = {"memes", "epic", "best", "beautiful", "peak"}},
-    {button = GRAVITY_FALLS, bpm = "120", var = false, url = "GRAVITY_FALLS", cat = {"memes", "best"}},
-    {button = GYPSY_WOMAN, bpm = "120", var = false, url = "GYPSY_WOMAN", cat = {"memes", "pop/hiphop"}},
-    {button = I_LIKE_THE_WAY_YOU, bpm = "151", var = false, url = "I_LIKE_THE_WAY_YOU", cat = {"pop/hiphop", "sad", "best", "beautiful"}},
-    {button = ISOLATION, bpm = "100", var = false, url = "ISOLATION", cat = {"best", "epic", "video games", "peak"}},
-    {button = KAWAIKUTEGOMEN, bpm = "160", var = false, url = "KAWAIKUTEGOMEN", cat = {"anime/jpop", "best"}},
-    {button = LIGHT_SWITCH, bpm = "184", var = false, url = "LIGHT_SWITCH", cat = {"pop/hiphop"}},
-    {button = SPECTRE, bpm = "128", var = false, url = "SPECTRE", cat = {"electronic", "memes", "beautiful", "best"}},
-    {button = SUPER_IDOL, bpm = "136", var = false, url = "SUPER_IDOL", cat = {"memes"}},
-    {button = THATS_WHAT_I_WANT, bpm = "85", var = false, url = "THATS_WHAT_I_WANT", cat = {"pop/hiphop"}},
-    {button = THE_AMAZING_DIGITAL, bpm = "110", var = false, url = "THE_AMAZING_DIGITAL", cat = {"best"}},
-    {button = JOCELYN_FLORES, bpm = "136", var = false, url = "JOCELYN_FLORES", cat = {"sad", "beautiful"}},
-    {button = FLY_ME_TO_THE_MOON, bpm = "140", var = false, url = "FLY_ME_TO_THE_MOON", cat = {"classical", "beautiful"}},
-    {button = BAD_HABIT, bpm = "80", var = false, url = "BAD_HABIT", cat = {"pop/hiphop", "sad"}},
-    {button = SOMEBODY_THAT_I_USED, bpm = "120", var = false, url = "SOMEBODY_THAT_I_USED", cat = {"pop/hiphop", "sad"}},
-    {button = LEVAN_POLKKA, bpm = "135", var = false, url = "LEVAN_POLKKA", cat = {"memes"}},
-    {button = MY_ORDINARY_LIFE, bpm = "130", var = false, url = "MY_ORDINARY_LIFE", cat = {"electronic"}},
-    {button = RUINS, bpm = "138", var = false, url = "RUINS", cat = {"video games", "undertale"}},
-    {button = STEREO_HEARTS, bpm = "96", var = false, url = "STEREO_HEARTS", cat = {"pop/hiphop", "best"}},
-    {button = STRANGER_THINGS, bpm = "80", var = false, url = "STRANGER_THINGS", cat = {}},
-    {button = HH, bpm = "150", var = false, url = "HH", cat = {"memes", "peak"}},
-    --[[
-
-    {button = , bpm = "", var = false, url = "", cat = {""}}
-
-]]
-}
-
-for _, song in ipairs(songs) do
-    print("song loaded: " .. song.button.Name)
-end
-
-local categories = {
-    "peak",
-    "best",
-    "epic",
-    "beautiful",
-    "video games",
-    "memes",
-    "classical",
-    "anime/jpop",
-    "pop/hiphop",
-    "sad",
-    "electronic",
-    "rock",
-    "undertale",
-    "minecraft",
-    "omori"
-} -- The main table for unique categories
-
-local folderexists = false
-local customsongs = {}
-
-print("initiating buttons")
-
-print("fetching songs")
-
-local specsong = {button = AVRIL_14, bpm = "79", var = false, url = "https://pastefy.app/NY5KqR8m/raw", cat = {}}
-if game.Players.LocalPlayer.Name == "4BCQA" then
-    table.insert(songs, specsong)
-end
-
-local customnotice = Instance.new("TextLabel")
-customnotice.Name = "customnotice"
-customnotice.Parent = scroll
-customnotice.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-customnotice.BorderColor3 = Color3.fromRGB(255, 182, 193)
-customnotice.BorderSizePixel = 4
-customnotice.Size = UDim2.new(0, 175, 0, 75)
-customnotice.Font = Enum.Font.SourceSansBold
-customnotice.Text = "Your executor may not support this feature."
-customnotice.TextColor3 = Color3.fromRGB(255, 255, 255)
-customnotice.TextSize = 25.000
-customnotice.TextWrapped = true
-
-local function newcat(name)
-    local TextButton = Instance.new("TextButton")
-    TextButton.Parent = categoriesFrame
-    TextButton.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-    TextButton.BorderColor3 = Color3.fromRGB(255, 182, 193)
-    TextButton.BorderSizePixel = 2
-    TextButton.Size = UDim2.new(0, 100, 0, 25)
-    TextButton.Font = Enum.Font.SourceSansBold
-    TextButton.Text = name
-    TextButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    TextButton.TextSize = 14.000
-
-    return TextButton
-end
-
-local customcat = newcat("custom songs (0)")
-
-customcat.MouseButton1Click:Connect(
-    function()
-        scroll.CanvasPosition = Vector2.new(0, 0)
-        for _, song in ipairs(songs) do
-            song.button.Visible = false
-        end
-
-        for _, song in ipairs(customsongs) do
-            song.Visible = true
-        end
-
-        PLAYRANDOM.Visible = false
-        LOOPRANDOM.Visible = false
-        customnotice.Visible = true
-    end
-)
-
-function updatecustomcount()
-    customcat.Text = "custom songs (" .. tostring(#customsongs - 1) .. ")"
-end
-
-local othercats = newcat("other")
-
-othercats.MouseButton1Click:Connect(
-    function()
-        scroll.CanvasPosition = Vector2.new(0, 0)
-        for _, song in ipairs(songs) do
-            song.button.Visible = false
-        end
-        for _, song in ipairs(customsongs) do
-            song.Visible = false
-        end
-
-        PLAYRANDOM.Visible = true
-        LOOPRANDOM.Visible = true
-        customnotice.Visible = false
-    end
-)
-
-local allcats = newcat("all (" .. tostring(#songs) .. ")")
-
-allcats.MouseButton1Click:Connect(
-    function()
-        scroll.CanvasPosition = Vector2.new(0, 0)
-        for _, song in ipairs(songs) do
-            song.button.Visible = true
-        end
-
-        for _, song in ipairs(customsongs) do
-            song.Visible = false
-        end
-
-        PLAYRANDOM.Visible = true
-        LOOPRANDOM.Visible = true
-        customnotice.Visible = false
-    end
-)
-
-local existing = {}
-
-for _, categoryName in pairs(categories) do
-    local numsongs = {}
-    for _, song in ipairs(songs) do
-        for _, category in ipairs(song.cat) do
-            if category == categoryName then
-                table.insert(numsongs, song.button.Name)
+    -- filter
+    local q = searchbar.Text:lower()
+    for _, s in ipairs(songs) do
+        local matchCat = (cat == "all")
+        if not matchCat then
+            for _, c in ipairs(s.cat) do
+                if c == cat then matchCat = true break end
             end
         end
-    end
-
-    local categoryButton = newcat(categoryName .. " (" .. tostring(#numsongs) .. ")")
-
-    categoryButton.MouseButton1Click:Connect(
-        function()
-            PLAYRANDOM.Visible = false
-            LOOPRANDOM.Visible = false
-
-            scroll.CanvasPosition = Vector2.new(0, 0)
-
-            for _, song in ipairs(songs) do
-                song.button.Visible = false
-                for _, category in ipairs(song.cat) do
-                    if category == categoryName then
-                        song.button.Visible = true
-                    end
-                end
-            end
-
-            for _, song in ipairs(customsongs) do
-                song.Visible = false
-            end
-            customnotice.Visible = false
-        end
-    )
-end
-
-function disable()
-    for _, song in ipairs(songs) do
-        song.var = false
+        local matchSearch = (q == "") or s.name:lower():find(q, 1, true) or (s.url and s.url:lower():find(q, 1, true))
+        s.button.Visible = matchCat and matchSearch
     end
 end
 
-disable()
+for _, cat in ipairs(ALL_CATS) do
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, 98, 0, 26)
+    b.BackgroundColor3 = (cat == "all") and Color3.fromRGB(255, 120, 160) or Color3.fromRGB(45, 45, 55)
+    b.Text = cat
+    b.Font = Enum.Font.Gotham
+    b.TextSize = 12
+    b.TextColor3 = Color3.fromRGB(255, 255, 255)
+    b.Parent = categoriesFrame
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    catButtons[cat] = b
+    b.MouseButton1Click:Connect(function()
+        setCategory(cat)
+    end)
+end
 
-songisplaying = false
+searchbar:GetPropertyChangedSignal("Text"):Connect(function()
+    setCategory(activeCategory)
+end)
 
-function playbuttonclicked()
+-- ========== Play flow (exact order per spec) ==========
+local function loadEngine()
+    if type(_G.__AP_ENGINE_SRC) == "string" and #_G.__AP_ENGINE_SRC > 200 and not _G.__AP_ENGINE_SRC:find("placeholder") then
+        loadstring(_G.__AP_ENGINE_SRC)()
+    else
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/engine.lua", true))()
+    end
+end
+
+local function playbuttonclicked()
     if songisplaying or _G.songisplaying then
-        playSound("6493287948", 0.1)
+        playSound(6493287948, 0.1)
         NotificationLibrary:SendNotification("Error", "A song is already playing.", 1)
         return
     end
 
-    bpm = tonumber(bpmbox.Text)
-    if not bpm or bpm <= 0 then
-        playSound("6493287948", 0.1)
+    local bpmVal = tonumber(bpmbox.Text)
+    if not bpmVal or bpmVal <= 0 then
+        playSound(6493287948, 0.1)
         NotificationLibrary:SendNotification("Error", "Invalid BPM.", 2)
         return
     end
+    bpm = bpmVal
 
     local selected = nil
-    for _, song in pairs(songs) do
+    for _, song in ipairs(songs) do
         if song.var == true then
             selected = song
             break
         end
     end
     if not selected then
-        playSound("6493287948", 0.1)
+        playSound(6493287948, 0.1)
         NotificationLibrary:SendNotification("Error", "Select a song first.", 2)
         return
     end
 
-    -- Song note data (sheet only). Engine is fully local/self-hosted.
+    -- Resolve song script: custom local OR remote sheet
     local songscript
-    local ok, res = pcall(function()
-        return game:HttpGet("https://hellohellohell0.com/talentless-raw/SONGS/" .. selected.url, true)
-    end)
-    if ok and type(res) == "string" and #res > 10 then
-        songscript = res
+    if selected.custom and selected.script then
+        songscript = selected.script
+    else
+        local ok, res = pcall(function()
+            return game:HttpGet("https://hellohellohell0.com/talentless-raw/SONGS/" .. tostring(selected.url), true)
+        end)
+        if ok and type(res) == "string" and #res > 10 then
+            songscript = res
+        end
     end
     if not songscript then
-        playSound("6493287948", 0.1)
-        NotificationLibrary:SendNotification("Error", "Song data not found: " .. tostring(selected.url), 3)
+        playSound(6493287948, 0.1)
+        NotificationLibrary:SendNotification("Error", "Song data not found: " .. tostring(selected.url or selected.name), 3)
         return
     end
 
@@ -1163,10 +877,7 @@ function playbuttonclicked()
     _G.songisplaying = true
     _G.STOPIT = false
 
-    -- New self-contained engine (no original loader)
-    local okE, errE = pcall(function()
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/engine.lua", true))()
-    end)
+    local okE, errE = pcall(loadEngine)
     if not okE then
         songisplaying = false
         _G.songisplaying = false
@@ -1175,6 +886,7 @@ function playbuttonclicked()
         return
     end
 
+    print("[AutoPiano] Playing:", selected.name, "len=", #songscript, "BPM=", bpm)
     local okS, errS = pcall(function()
         loadstring(songscript)()
     end)
@@ -1184,409 +896,74 @@ function playbuttonclicked()
         _G.STOPIT = true
         NotificationLibrary:SendNotification("Error", "Song script error.", 3)
         warn("[AutoPiano] song:", errS)
-        return
     end
-
-    print("[AutoPiano] Playing:", selected.button and selected.button.Text or selected.url)
 end
 
 playsong.MouseButton1Click:Connect(playbuttonclicked)
 
-for _, song in ipairs(songs) do
-    song.button.MouseButton1Click:Connect(
-        function()
-            disable()
-            song.var = true
-            songname.Text = song.button.Text
-            bpmbox.Text = song.bpm
-        end
-    )
-end
+playRandomBtn.MouseButton1Click:Connect(function()
+    if #songs == 0 then return end
+    local r = songs[math.random(1, #songs)]
+    disable()
+    r.var = true
+    r.button.BackgroundColor3 = Color3.fromRGB(255, 120, 160)
+    songname.Text = r.name
+    bpmbox.Text = r.bpm
+    playbuttonclicked()
+end)
 
--- play random function
+addSongBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/add_song.lua", true))()
+    end)
+end)
 
-PLAYRANDOM.MouseButton1Click:Connect(
-    function()
-        local function getRandomSong()
-            local ransong = math.random(1, #songs)
-            return songs[ransong]
-        end
-
-        local randomSong = getRandomSong()
-
-        disable()
-        randomSong.var = true
-        songname.Text = randomSong.button.Name
-        bpmbox.Text = randomSong.bpm
-
-        playbuttonclicked()
-    end
-)
-
--- play all function
-
-playingall = false
-
-local function createstopbutton()
-    if not STOPLOOP then
-        -- StarterGui.ScreenGui.Frame.scrolltab.stoploop
-        STOPLOOP = Instance.new("TextButton", bar)
-        STOPLOOP["BorderSizePixel"] = 4
-        STOPLOOP["TextSize"] = 14
-        STOPLOOP["TextColor3"] = Color3.fromRGB(255, 255, 255)
-        STOPLOOP["BackgroundColor3"] = Color3.fromRGB(255, 228, 235)
-        STOPLOOP["FontFace"] =
-            Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Bold, Enum.FontStyle.Normal)
-        STOPLOOP["AutomaticSize"] = Enum.AutomaticSize.XY
-        STOPLOOP["Size"] = UDim2.new(0, 125, 0, 27)
-        STOPLOOP["Name"] = [[stoploop]]
-        STOPLOOP["BorderColor3"] = Color3.fromRGB(255, 182, 193)
-        STOPLOOP["Text"] = [[STOP LOOPING SONGS]]
-        STOPLOOP.LayoutOrder = 4
-
-        STOPLOOP.MouseButton1Click:Connect(
-            function()
-                playingall = false
-                STOPLOOP:Destroy()
-                stopPlayingSongs()
-                STOPLOOP = nil
-            end
-        )
-    end
-end
-
-LOOPRANDOM.MouseButton1Click:Connect(
-    function()
-        if playingall then
-            return
-        end
-        playingall = true
-        createstopbutton()
-        
-        local playedSongs = {}
-
-        local function getRandomSong()
-
-            if #playedSongs >= #songs then
-                playedSongs = {}
-            end
-
-            while true do
-                local ransong = math.random(1, #songs)
-                if not table.find(playedSongs, songs[ransong].button.Name) then
-                    table.insert(playedSongs, songs[ransong].button.Name)
-                    return songs[ransong]
-                end
-            end
-            
-        end
-
-        while true do
-
-            local randomSong = getRandomSong()
-            if not playingall then
-                return
-            end
-
-            disable()
-            randomSong.var = true
-            songname.Text = randomSong.button.Name
-            bpmbox.Text = randomSong.bpm
-            playbuttonclicked()
-            wait(1)
-        end
-    end
-)
-
--- close function
-
-closeButton.MouseButton1Click:Connect(
-    function()
-        ScreenGui:Destroy()
-        STOPLOOP = nil
-        playingall = false
-        stopAllSongs()
-    end
-)
-
-infoButton.MouseButton1Click:Connect(
-    function()
-        loadstring(
-            game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/load.lua", true)
-        )()
-    end
-)
-
--- function to make the song buttons
-
-local function newCustomSongButton(name)
-    local customsongframe = Instance.new("Frame")
-    local test = Instance.new("TextButton")
-    local ImageButton = Instance.new("ImageButton")
-
-    customsongframe.Name = "customsongframe"
-    customsongframe.Parent = scroll
-    customsongframe.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-    customsongframe.BorderColor3 = Color3.fromRGB(255, 182, 193)
-    customsongframe.BorderSizePixel = 4
-    customsongframe.Size = UDim2.new(0, 175, 0, 35)
-    customsongframe.SizeConstraint = Enum.SizeConstraint.RelativeYY
-
-    test.Name = name
-    test.Parent = customsongframe
-    test.BackgroundTransparency = 1.000
-    test.Size = UDim2.new(0, 135, 0, 35)
-    test.Font = Enum.Font.SourceSansBold
-    test.Text = name
-    test.TextColor3 = Color3.fromRGB(255, 255, 255)
-    test.TextScaled = true
-    test.TextWrapped = true
-
-    ImageButton.Parent = customsongframe
-    ImageButton.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-    ImageButton.BackgroundTransparency = 1.000
-    ImageButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    ImageButton.BorderSizePixel = 0
-    ImageButton.Position = UDim2.new(0.816999972, 0, 0.115000002, 0)
-    ImageButton.Size = UDim2.new(0, 26, 0, 27)
-    ImageButton.Image = "http://www.roblox.com/asset/?id=6121397347"
-
-    return {button = test, delbutton = ImageButton, frame = customsongframe}
-end
-
--- testing if the executor supports
--- listfiles(""), listfiles([[./TALENTLESS_CUSTOM_SONGS]])
-
-local function test(name, _, func)
-    print("Running test: " .. name)
-    local success, err = pcall(func)
-    if success then
-        print(name .. " passed")
-        return true
-    else
-        print(name .. " failed: " .. err)
-        return false
-    end
-end
-
-local function runTests()
-    local allPassed = true
-
-    allPassed =
-        test(
-        "makefolder",
-        {},
-        function()
-            makefolder("TALENTLESS_makefolder")
-            assert(isfolder("TALENTLESS_makefolder"), "Did not create the folder")
-        end
-    ) and allPassed
-
-    allPassed =
-        test(
-        "listfiles",
-        {},
-        function()
-            assert(#listfiles("") > 0, "Did not return a list of files")
-        end
-    ) and allPassed
-
-    allPassed =
-        test(
-        "writefile",
-        {},
-        function()
-            writefile("TALENTLESS_makefolder/writefile.txt", "success")
-            testfile = listfiles("./TALENTLESS_makefolder")[1]
-            assert(readfile(testfile) == "success", "Did not write the file")
-        end
-    ) and allPassed
-
-    allPassed =
-        test(
-        "listfiles2",
-        {},
-        function()
-            assert(#listfiles("./TALENTLESS_makefolder") > 0, "Did not return a list of files")
-        end
-    ) and allPassed
-
-    allPassed =
-        test(
-        "delfile",
-        {},
-        function()
-            delfile(testfile)
-            assert(not isfile(testfile), "Did not delete the file")
-        end
-    ) and allPassed
-
-    return allPassed
-end
-
-local result = runTests()
-
-if result == true then
-    print("this executor supports custom songs")
-    customnotice:Destroy()
-end
-
-NEWSONGBUTTON = newSongButton("+", 30, {""})
-NEWSONGBUTTON.Visible = false
-print("loaded NEWSONGBUTTON")
-
-NEWSONGBUTTON.MouseButton1Click:Connect(
-    function()
-        loadstring(
-            game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/add_song.lua", true)
-        )()
-    end
-)
-
-table.insert(customsongs, NEWSONGBUTTON)
-local addedCustoms = {}
-
--- function for listing songs in your custom songs folder. this runs at the end so if ur exec doesnt support it, the script wont die.
-
+-- ========== Custom songs ==========
 function updateSongs()
-    local alreadyAdded
-
-    for _, file in ipairs(listfiles("")) do
-        print(tostring(file))
-        if folderexists == false then
-            if string.find(tostring(file), "TALENTLESS_CUSTOM_SONGS") then
-                folderexists = true
-                print("custom songs folder found")
-            end
-        end
-    end
-
-    print("searching for custom song files...")
-
-    if folderexists then
-        for _, custom in ipairs(listfiles([[./TALENTLESS_CUSTOM_SONGS]])) do
-            alreadyAdded = false
-
-            print("song file found: " .. tostring(custom))
-
-            local filepath = tostring(custom) -- converts it into the format /TALENTLESS_CUSTOM_SONGS\example.txt
-
-            if not table.find(addedCustoms, filepath) then
-                if filepath:match("%.txt$") then -- if it has .txt at the end
-                    print("its a txt file, continuing")
-
-                    table.insert(addedCustoms, filepath) -- add the file to the addedCustoms table
-                    local tsongname = filepath:gsub([[\]], "/"):match(".*/([^/]+)%.txt$") or "Error" -- remove the /, \, and .txt
-                    print("song name: " .. tsongname)
-
-                    local hello = newCustomSongButton(tsongname) -- make the song button
-                    local songbutton = hello.button -- get the button
-                    local delsongbutton = hello.delbutton
-                    local songframe = hello.frame -- get the frame
-                    table.insert(customsongs, songframe)
-                    songbutton.Visible = false
-
-                    print("created song button for " .. tsongname)
-
-                    local songbpm = readfile(custom):match("bpm%s*=%s*(%d+)") or "Error" -- read the file and look for the string after bpm =
-                    print("songbpm found: " .. songbpm)
-
-                    songbutton.Visible = true
-
-                    songbutton.MouseButton1Click:Connect(
-                        function()
-                            print("clicked!")
-
-                            if songisplaying then
-                                playSound("6493287948", 0.1)
-                                NotificationLibrary:SendNotification("Error", "A song is already playing.", 1)
-                                return
-                            else
-                                local songcode = readfile(custom) -- define the contents of the song file
-                                local func, err = loadstring(songcode) -- load it
-
-                                if func then
-                                    print("running scrip....")
-                                    songname.Text = tsongname
-                                    bpmbox.Text = songbpm
-                                    playSound("6493287948", 0.1)
-                                    NotificationLibrary:SendNotification("Success", "Began playing song.", 1)
-                                    songisplaying = true
-                                    func()
-                                else
-                                    print("invalid script")
-                                    playSound("6493287948", 0.1)
-                                    NotificationLibrary:SendNotification(
-                                        "Error",
-                                        "Your song script is broken. If confused, contact support in the discord.",
-                                        5
-                                    )
-                                end
-                            end
-                        end
-                    )
-
-                    -- Initialize variables outside the event handler
-                    local clickTime = 0.5
-                    local lastClick = 0
-
-                    -- Create a single event connection
-                    delsongbutton.MouseButton1Click:Connect(
-                        function()
-                            local now = tick()
-                            if now - lastClick <= clickTime then
-                                -- Double-click detected
-                                print("Double-click detected. Deleting song...")
-                                delfile(filepath) -- Delete the file
-                                songframe:Destroy()
-                                table.remove(customsongs, table.find(customsongs, songbutton))
-                                table.remove(addedCustoms, table.find(addedCustoms, filepath))
-                                updatecustomcount()
-                                playSound("6493287948", 0.1)
-                                NotificationLibrary:SendNotification("Success", "Your song has been deleted.", 5)
-                            else
-                                -- Single-click detected
-                                print("Single-click detected. Showing notification...")
-                                playSound("6493287948", 0.1)
-                                NotificationLibrary:SendNotification("Info", "Double-click to delete the song.", 3)
-                            end
-                            lastClick = now -- Update the last click time
-                        end
-                    )
-
-                    updatecustomcount()
-                else -- if yes table.find
-                    print("song already added, skipping")
+    if not (isfolder and listfiles and readfile) then return end
+    local folders = {"AUTOPIANO_CUSTOM_SONGS", "TALENTLESS_CUSTOM_SONGS"}
+    for _, folder in ipairs(folders) do
+        if isfolder(folder) then
+            for _, filepath in ipairs(listfiles(folder)) do
+                local path = tostring(filepath)
+                if path:match("%.txt$") and not path:match("_categories") then
+                    local fname = path:match("([^/\\]+)%.txt$") or "Custom"
+                    local already = false
+                    for _, s in ipairs(songs) do
+                        if s.name == fname and s.custom then already = true break end
+                    end
+                    if not already then
+                        local content = readfile(path)
+                        local cat = {"custom"}
+                        local catLine = content:match("^%-%-CAT:(%S+)")
+                        if catLine then cat = {catLine} end
+                        local btn = newSongButton(fname)
+                        local entry = {
+                            button = btn,
+                            bpm = "120",
+                            var = false,
+                            url = nil,
+                            cat = cat,
+                            name = fname,
+                            custom = true,
+                            script = content,
+                        }
+                        table.insert(songs, entry)
+                        btn.MouseButton1Click:Connect(function()
+                            disable()
+                            entry.var = true
+                            btn.BackgroundColor3 = Color3.fromRGB(255, 120, 160)
+                            songname.Text = fname
+                            bpmbox.Text = entry.bpm
+                        end)
+                    end
                 end
-            else    
-                print("its not a txt, skipping")
             end
         end
-    else
-    end -- ends if folderexists
-end -- end updatesongs func
-
-for _, songbutton in ipairs(scroll:GetChildren()) do
-    if songbutton:IsA("TextButton") then
-        if songbutton.Text == "error" then
-            songbutton:Destroy()
-        end
-    else
     end
 end
 
-wait(0.5)
-updateSongs()
+task.defer(updateSongs)
 
-print([[
-
-
-
- __ __|   \     |      ____|   \  | __ __|  |      ____|   ___|   ___|  
-    |    _ \    |      __|      \ |    |    |      __|   \___ \ \___ \  
-    |   ___ \   |      |      |\  |    |    |      |           |      | 
-   _| _/    _\ _____| _____| _| \_|   _|   _____| _____| _____/ _____/  
- 
-
-
-]])
+print("[AutoPiano] UI ready - select a song then press Play")
+NotificationLibrary:SendNotification("Success", "AutoPiano ready", 2)

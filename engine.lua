@@ -22,10 +22,10 @@ pausing = false
 
 local resumeEvent = Instance.new("BindableEvent")
 
--- minimal notif
+-- minimal notif (self-drawn, no external lib required)
 local function notify(title, text, dur)
     dur = dur or 2
-    local ok, gui = pcall(function()
+    local ok = pcall(function()
         local sg = Instance.new("ScreenGui")
         sg.Name = "APNotif"
         sg.ResetOnSpawn = false
@@ -59,7 +59,6 @@ local function notify(title, text, dur)
         task.delay(dur, function()
             pcall(function() sg:Destroy() end)
         end)
-        return sg
     end)
     if not ok then
         print("[AutoPiano]", title, text)
@@ -77,7 +76,7 @@ local function clickSound()
     end)
 end
 
--- key maps (virtual piano QWERTY)
+-- key maps (Virtual Piano QWERTY)
 local shiftKeys = {
     ["!"]=true,["@"]=true,["#"]=true,["$"]=true,["%"]=true,["^"]=true,
     ["&"]=true,["*"]=true,["("]=true,[")"]=true,
