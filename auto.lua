@@ -5,11 +5,11 @@ local NotificationLibrary =
         return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/notif_lib.lua", true))()
     end)
     if ok and lib then return lib end
-    ok, lib = pcall(function()
-        return loadstring(game:HttpGet("https://hellohellohell0.com/talentless-raw/notif_lib.lua", true))()
-    end)
-    if ok and lib then return lib end
-    return { SendNotification = function(_, title, text) print("[Notif]", title, text) end }
+    return {
+        SendNotification = function(_, title, text)
+            print("[Notif]", title, text)
+        end
+    }
 end)()
 
 local function playSound(soundId, loudness)
@@ -1145,18 +1145,17 @@ function playbuttonclicked()
         return
     end
 
-    -- Fetch song script FIRST from the real host (GitHub has no song files)
-    local songscript = nil
-    local okFetch, fetchResult = pcall(function()
+    -- Song note data (sheet only). Engine is fully local/self-hosted.
+    local songscript
+    local ok, res = pcall(function()
         return game:HttpGet("https://hellohellohell0.com/talentless-raw/SONGS/" .. selected.url, true)
     end)
-    if okFetch and type(fetchResult) == "string" and #fetchResult > 10 then
-        songscript = fetchResult
+    if ok and type(res) == "string" and #res > 10 then
+        songscript = res
     end
     if not songscript then
         playSound("6493287948", 0.1)
-        NotificationLibrary:SendNotification("Error", "Failed to download song: " .. tostring(selected.url), 3)
-        warn("[AutoPiano] Song fetch failed:", selected.url, fetchResult)
+        NotificationLibrary:SendNotification("Error", "Song data not found: " .. tostring(selected.url), 3)
         return
     end
 
@@ -1164,44 +1163,32 @@ function playbuttonclicked()
     _G.songisplaying = true
     _G.STOPIT = false
 
-    if not _G.languages then
-        _G.languages = {["en"]=true,["pt-BR"]=false,["es"]=false,["ru"]=false,["zh-CN"]=false,["id"]=false,["fil"]=false,["vi"]=false,["fr"]=false,["de"]=false,["ja"]=false,["ko"]=false,["tr"]=false,["ar"]=false}
-    end
-    _G.talentlessSettings = _G.talentlessSettings or {}
-
-    -- Load control UI + keypress/rest/finishedSong
-    local okLoader, errLoader = pcall(function()
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/loader_main.lua", true))()
+    -- New self-contained engine (no original loader)
+    local okE, errE = pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/engine.lua", true))()
     end)
-    if not okLoader then
-        warn("[AutoPiano] GitHub loader failed:", errLoader)
-        okLoader, errLoader = pcall(function()
-            loadstring(game:HttpGet("https://hellohellohell0.com/talentless-raw/loader_main.lua", true))()
-        end)
-    end
-    if not okLoader then
+    if not okE then
         songisplaying = false
         _G.songisplaying = false
-        NotificationLibrary:SendNotification("Error", "Loader failed to start.", 3)
-        warn("[AutoPiano] Loader error:", errLoader)
+        NotificationLibrary:SendNotification("Error", "Engine failed to load.", 3)
+        warn("[AutoPiano] engine:", errE)
         return
     end
 
-    -- Execute song (calls global keypress/rest defined by loader)
-    local okSong, errSong = pcall(function()
+    local okS, errS = pcall(function()
         loadstring(songscript)()
     end)
-    if not okSong then
+    if not okS then
         songisplaying = false
         _G.songisplaying = false
         _G.STOPIT = true
         NotificationLibrary:SendNotification("Error", "Song script error.", 3)
-        warn("[AutoPiano] Song error:", errSong)
+        warn("[AutoPiano] song:", errS)
         return
     end
 
     print("[AutoPiano] Playing:", selected.button and selected.button.Text or selected.url)
-end -- close the play song onclick function
+end
 
 playsong.MouseButton1Click:Connect(playbuttonclicked)
 
@@ -1325,7 +1312,7 @@ closeButton.MouseButton1Click:Connect(
 infoButton.MouseButton1Click:Connect(
     function()
         loadstring(
-            game:HttpGet("https://hellohellohell0.com/talentless-raw/info.lua", true)
+            game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/load.lua", true)
         )()
     end
 )
