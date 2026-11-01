@@ -10,6 +10,7 @@ local REPO_BASE = "https://raw.githubusercontent.com/Linh-1205/autopiano/main/"
 local SHEET_HOST = "https://hellohellohell0.com/talentless-raw/SONGS/"
 local CUSTOM_DIR = "AUTOPIANO_CUSTOM_SONGS"
 local LEGACY_DIR = "TALENTLESS_CUSTOM_SONGS"
+local HIDDEN_FILE = CUSTOM_DIR .. "/_hidden.txt" -- bài có sẵn đã xoá (ẩn)
 
 -- Thêm bài: url = tên file sheet (không đuôi) trên host SONGS
 local SONG_LIST = {
@@ -125,7 +126,7 @@ for i = 1, 10 do
 end
 for c in ("abcdefghijklmnopqrstuvwxyz"):gmatch(".") do
     keyMap[c] = { KC[c:upper()], false }
-    keyMap[c:upper()] = { KC[c:upper()], false } -- chữ hoa: nhấn thẳng phím, KHÔNG kèm Shift
+    keyMap[c:upper()] = { KC[c:upper()], true } -- chữ hoa = Shift + phím
 end
 keyMap[" "] = { KC.Space, false }
 
@@ -677,6 +678,7 @@ local songisplaying = false
 local shuffleOn = false
 local selectedCat = "All"
 local alive = true
+local hidden = {} -- [url] = true: bài trong SONG_LIST bị xoá/ẩn
 
 local gui, listFrame, searchBox, catBar, nameLabel, bpmbox
 local refreshList, buildCats, selectSong, disable
@@ -694,13 +696,37 @@ end
 
 local function loadBuiltinSongs()
     for _, d in ipairs(SONG_LIST) do
-        addSong({ url = d.url, bpm = d.bpm, cat = d.cat })
+        if not hidden[d.url] then
+            addSong({ url = d.url, bpm = d.bpm, cat = d.cat })
+        end
     end
 end
 
 -- Custom songs từ folder executor
 local function hasFS()
     return type(isfolder) == "function" and type(listfiles) == "function" and type(readfile) == "function"
+end
+
+local function loadHidden()
+    if type(isfile) == "function" and type(readfile) == "function" and isfile(HIDDEN_FILE) then
+        local ok, content = pcall(readfile, HIDDEN_FILE)
+        if ok and content then
+            for line in tostring(content):gmatch("[^\r\n]+") do hidden[line] = true end
+        end
+    end
+end
+
+local function saveHidden()
+    if type(writefile) ~= "function" then return end -- không có FS: chỉ ẩn trong phiên này
+    pcall(function()
+        if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder(CUSTOM_DIR) then
+            makefolder(CUSTOM_DIR)
+        end
+        local lines = {}
+        for url in pairs(hidden) do lines[#lines + 1] = url end
+        table.sort(lines)
+        writefile(HIDDEN_FILE, table.concat(lines, "\n"))
+    end)
 end
 
 local function readCategoriesFile(dir)
@@ -732,7 +758,7 @@ local function loadCustomSongs()
             if okl and type(files) == "table" then
                 for _, path in ipairs(files) do
                     local name = tostring(path):match("([^/\\]+)%.txt$")
-                    if name and name ~= "_categories" then
+                    if name and name:sub(1, 1) ~= "_" then
                         local ok, content = pcall(readfile, path)
                         if ok and type(content) == "string" then
                             local cats = catMap[name] or {}
@@ -930,6 +956,12 @@ refreshList = function()
     end
 end
 
+local function paintCheck(s)
+    if not s.check then return end
+    s.check.BackgroundColor3 = s.checked and C.accentText or C.bg
+    s.check.Text = s.checked and "x" or ""
+end
+
 local function makeSongButton(s)
     local b = new("TextButton", {
         Size = UDim2.new(1, -6, 0, 32),
@@ -939,11 +971,30 @@ local function makeSongButton(s)
         AutoButtonColor = true,
     }, listFrame)
     corner(b, 6)
+    local box = new("TextButton", {
+        Name = "Check",
+        Position = UDim2.new(0, 8, 0.5, -9),
+        Size = UDim2.new(0, 18, 0, 18),
+        BackgroundColor3 = C.bg,
+        BorderSizePixel = 0,
+        Text = "",
+        Font = Enum.Font.GothamBold,
+        TextSize = 13,
+        TextColor3 = C.accent,
+        AutoButtonColor = false,
+    }, b)
+    corner(box, 4)
+    s.check = box
+    s.checked = false
+    box.Activated:Connect(function()
+        s.checked = not s.checked
+        paintCheck(s)
+    end)
     new("TextLabel", {
         Name = "Name",
         BackgroundTransparency = 1,
-        Position = UDim2.new(0, 10, 0, 0),
-        Size = UDim2.new(0.6, -10, 1, 0),
+        Position = UDim2.new(0, 34, 0, 0),
+        Size = UDim2.new(0.6, -34, 1, 0),
         Text = s.name,
         Font = Enum.Font.GothamMedium,
         TextSize = 13,
@@ -1019,35 +1070,47 @@ local function rebuildAll()
     refreshList()
 end
 
-local function deleteSong(s)
-    if type(delfile) ~= "function" then
-        notify("Error", "Executor has no delfile support", 3)
-        return
-    end
-    local ok, err = pcall(delfile, s.path)
-    if not ok then
-        warn("[AutoPiano] delete failed: " .. tostring(err))
-        notify("Error", "Could not delete song", 3)
-        return
-    end
-    -- gỡ khỏi _categories.txt cùng thư mục
-    local dir = tostring(s.path):match("^(.*)[/\\][^/\\]+$")
-    if dir and type(isfile) == "function" then
-        local cp = dir .. "/_categories.txt"
-        if isfile(cp) then
-            pcall(function()
-                local lines = {}
-                for line in tostring(readfile(cp)):gmatch("[^\r\n]+") do
-                    local n = line:match("^(.-)|")
-                    if n ~= s.name then lines[#lines + 1] = line end
+local function deleteSongs(targets)
+    local removed, failed, hiddenChanged = 0, 0, false
+    for _, s in ipairs(targets) do
+        if s.custom then
+            if type(delfile) ~= "function" then
+                failed = failed + 1
+            else
+                local ok, err = pcall(delfile, s.path)
+                if not ok then
+                    warn("[AutoPiano] delete failed: " .. tostring(err))
+                    failed = failed + 1
+                else
+                    removed = removed + 1
+                    -- gỡ khỏi _categories.txt cùng thư mục
+                    local dir = tostring(s.path):match("^(.*)[/\\][^/\\]+$")
+                    if dir and type(isfile) == "function" then
+                        local cp = dir .. "/_categories.txt"
+                        if isfile(cp) then
+                            pcall(function()
+                                local lines = {}
+                                for line in tostring(readfile(cp)):gmatch("[^\r\n]+") do
+                                    local n = line:match("^(.-)|")
+                                    if n ~= s.name then lines[#lines + 1] = line end
+                                end
+                                writefile(cp, table.concat(lines, "\n"))
+                            end)
+                        end
+                    end
                 end
-                writefile(cp, table.concat(lines, "\n"))
-            end)
+            end
+        else
+            hidden[s.url] = true -- bài có sẵn: ẩn khỏi danh sách (lưu lại để lần sau vẫn ẩn)
+            hiddenChanged = true
+            removed = removed + 1
         end
     end
+    if hiddenChanged then saveHidden() end
     nameLabel.Text = "No song selected"
     rebuildAll()
-    notify("Success", "Deleted: " .. s.name, 3)
+    if removed > 0 then notify("Success", "Deleted " .. removed .. " song(s)", 3) end
+    if failed > 0 then notify("Error", failed .. " song(s) could not be deleted (no delfile)", 4) end
 end
 
 local function buildUI()
@@ -1104,7 +1167,7 @@ local function buildUI()
 
     -- search
     searchBox = new("TextBox", {
-        Position = UDim2.new(0, 12, 0, 44), Size = UDim2.new(1, -24, 0, 30),
+        Position = UDim2.new(0, 12, 0, 44), Size = UDim2.new(1, -130, 0, 30),
         BackgroundColor3 = C.panel, BorderSizePixel = 0, Text = "",
         PlaceholderText = "Search by name or tag", PlaceholderColor3 = C.muted,
         Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = C.text,
@@ -1113,6 +1176,30 @@ local function buildUI()
     corner(searchBox, 8)
     new("UIPadding", { PaddingLeft = UDim.new(0, 10) }, searchBox)
     searchBox:GetPropertyChangedSignal("Text"):Connect(function() refreshList() end)
+
+    -- tick / bỏ tick tất cả bài đang hiện
+    local selAll = new("TextButton", {
+        Position = UDim2.new(1, -110, 0, 44), Size = UDim2.new(0, 98, 0, 30),
+        BackgroundColor3 = C.item, BorderSizePixel = 0, Text = "Select All",
+        Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = C.text,
+    }, main)
+    corner(selAll, 8)
+    selAll.Activated:Connect(function()
+        local any, allChecked = false, true
+        for _, s in ipairs(songs) do
+            if s.button and s.button.Visible then
+                any = true
+                if not s.checked then allChecked = false end
+            end
+        end
+        if not any then return end
+        for _, s in ipairs(songs) do
+            if s.button and s.button.Visible then
+                s.checked = not allChecked
+                paintCheck(s)
+            end
+        end
+    end)
 
     -- category chips
     catBar = new("ScrollingFrame", {
@@ -1200,32 +1287,39 @@ local function buildUI()
         end
     end)
 
-    -- Delete: bấm 2 lần (xác nhận) để xoá bài custom đang chọn
-    local deleteBtn, armedSong
+    -- Delete: xoá các bài đã tick (không tick thì xoá bài đang chọn). Bấm 2 lần để xác nhận.
+    local deleteBtn, armedSig
     deleteBtn = small("Delete", 4, function()
-        local sel
+        local targets = {}
         for _, s in ipairs(songs) do
-            if s.var == true then sel = s break end
+            if s.checked then targets[#targets + 1] = s end
         end
-        if not sel then notify("Error", "Select a song first", 3) return end
-        if not sel.custom then
-            notify("Error", "Only custom songs can be deleted", 3)
+        if #targets == 0 then
+            for _, s in ipairs(songs) do
+                if s.var == true then targets[1] = s break end
+            end
+        end
+        if #targets == 0 then
+            notify("Error", "Tick songs or select one first", 3)
             return
         end
-        if armedSong ~= sel then
-            armedSong = sel
-            deleteBtn.Text = "Confirm?"
+        local names = {}
+        for _, s in ipairs(targets) do names[#names + 1] = s.name end
+        local sig = #targets .. ":" .. table.concat(names, "|")
+        if armedSig ~= sig then
+            armedSig = sig
+            deleteBtn.Text = (#targets > 1) and ("Confirm (" .. #targets .. ")?") or "Confirm?"
             task.delay(3, function()
-                if armedSong == sel then
-                    armedSong = nil
+                if armedSig == sig then
+                    armedSig = nil
                     deleteBtn.Text = "Delete"
                 end
             end)
             return
         end
-        armedSong = nil
+        armedSig = nil
         deleteBtn.Text = "Delete"
-        deleteSong(sel)
+        deleteSongs(targets)
     end)
 
     close.Activated:Connect(function() _G.__AP_UI_DESTROY() end)
@@ -1253,6 +1347,7 @@ _G.AP_RefreshSongs = function()
     if gui then rebuildAll() end
 end
 
+loadHidden()
 buildUI()
 rebuildAll()
 print("[AutoPiano] UI ready - select a song then press Play")
