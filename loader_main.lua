@@ -6,7 +6,7 @@ _G.NOTE_QUEUE = {}           -- optional future use
 -- Self-contained notification (no external dependency)
 local function createNotifLib()
     local ok, lib = pcall(function()
-        return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/notif_lib.lua", true))()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/notif_lib.lua", true))()
     end)
     if ok and lib then return lib end
     -- fallback minimal
@@ -27,7 +27,7 @@ function playSound(soundId, loudness)
 end
 
 x = "hi"
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/load.lua", true))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/load.lua", true))()
 wait(0.3)
 playSound("6493287948", 0.1)
 NotificationLibrary:SendNotification("Success", "Began playing song.", 1)
@@ -76,7 +76,7 @@ local seekBack = Instance.new("TextButton", fram)
 seekBack.Size = UDim2.new(0, 42, 0, 42)
 seekBack.Position = UDim2.new(0, 112, 0, 12)
 seekBack.BackgroundColor3 = Color3.fromRGB(50, 50, 58)
-seekBack.Text = "⏪"
+seekBack.Text = "<<"
 seekBack.TextSize = 18
 seekBack.Font = Enum.Font.GothamBold
 seekBack.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -88,7 +88,7 @@ local seekFwd = Instance.new("TextButton", fram)
 seekFwd.Size = UDim2.new(0, 42, 0, 42)
 seekFwd.Position = UDim2.new(0, 162, 0, 12)
 seekFwd.BackgroundColor3 = Color3.fromRGB(50, 50, 58)
-seekFwd.Text = "⏩"
+seekFwd.Text = ">>"
 seekFwd.TextSize = 18
 seekFwd.Font = Enum.Font.GothamBold
 seekFwd.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -180,23 +180,18 @@ seekLabel.TextColor3 = Color3.fromRGB(180, 180, 190)
 seekLabel.Text = "Seek: 0s"
 seekLabel.TextXAlignment = Enum.TextXAlignment.Left
 seekLabel.Name = "seekLabel"
-more["Text"] = [[↑]]
-more["Position"] = UDim2.new(0.01963, 0, 0.59848, 0)
 
 local info = Instance.new("TextLabel", fram)
-info["TextWrapped"] = true
-info["BorderSizePixel"] = 0
-info["TextSize"] = 14
-info["TextScaled"] = true
-info["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
-info["FontFace"] =
-    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-info["TextColor3"] = Color3.fromRGB(0, 0, 0)
-info["Size"] = UDim2.new(0, 126, 0, 39)
-info["BorderColor3"] = Color3.fromRGB(0, 0, 0)
-info["Text"] = [[created by gau1234ct5 at stxllar scripts!]]
-info["Name"] = [[info]]
-info["Position"] = UDim2.new(0.56919, 0, 0.56487, 0)
+info.BackgroundTransparency = 1
+info.BorderSizePixel = 0
+info.TextSize = 11
+info.Font = Enum.Font.Gotham
+info.TextColor3 = Color3.fromRGB(140, 140, 150)
+info.Size = UDim2.new(0, 200, 0, 18)
+info.Text = "AutoPiano controls"
+info.Name = "info"
+info.Position = UDim2.new(0, 12, 0, 122)
+info.TextXAlignment = Enum.TextXAlignment.Left
 
 local UserInputService = game:GetService("UserInputService")
 

@@ -7,7 +7,7 @@
 
 local function createNotifLib()
     local ok, lib = pcall(function()
-        return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/notif_lib.lua", true))()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/notif_lib.lua", true))()
     end)
     if ok and lib then return lib end
     return {

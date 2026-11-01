@@ -5,7 +5,7 @@ _G.STOPIT = false
 
 local function createNotifLib()
     local ok, lib = pcall(function()
-        return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/notif_lib.lua", true))()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/notif_lib.lua", true))()
     end)
     if ok and lib then return lib end
     return { SendNotification = function(_, t, m) print("[Notif]", t, m) end }
@@ -22,7 +22,7 @@ end
 
 x = "hi"
 
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/load.lua", true))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/load.lua", true))()
 
 wait(0.3)
 

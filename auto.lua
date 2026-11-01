@@ -2,7 +2,7 @@
 -- Self-contained notification (no dependency on hellohellohell library)
 local function createNotifLib()
     local ok, lib = pcall(function()
-        return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/notif_lib.lua", true))()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/notif_lib.lua", true))()
     end)
     if ok and lib then return lib end
     return {
@@ -241,7 +241,7 @@ playsong.BorderSizePixel = 4
 playsong.Position = UDim2.new(0.0689100027, 0, 0.38815999, 0)
 playsong.Size = UDim2.new(0, 125, 0, 27)
 playsong.Font = Enum.Font.SourceSansBold
-playsong.Text = "play song !"
+playsong.Text = "Play"
 playsong.TextColor3 = Color3.fromRGB(255, 255, 255)
 playsong.TextSize = 25.000
 playsong.LayoutOrder = 3
@@ -1126,23 +1126,53 @@ function playbuttonclicked()
         return
     end
 
+    bpm = tonumber(bpmbox.Text)
+    if not bpm or bpm <= 0 then
+        playSound("6493287948", 0.1)
+        NotificationLibrary:SendNotification("Error", "Invalid BPM.", 2)
+        return
+    end
+
     songisplaying = true
-    bpm = tonumber(bpmbox.Text) or 120
 
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/loader_main.lua", true))()
-
+    local songscript = nil
     local songFound = false
+
     for _, song in pairs(songs) do
         if not songFound and song.var == true then
-            -- Prefer user's own repo if available, fallback to original
-            local ok = pcall(function()
-                loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/" .. song.url, true))()
+            local ok, result = pcall(function()
+                return game:HttpGet("https://hellohellohell0.com/talentless-raw/SONGS/" .. song.url, true)
             end)
-            if not ok then
-                loadstring(game:HttpGet("https://raw.githubusercontent.com/hellohellohell012321/TALENTLESS/main/" .. song.url, true))()
+            if ok and result and type(result) == "string" and #result > 10 then
+                songscript = result
+                songFound = true
             end
-            songFound = true
         end
+    end
+
+    if not songFound or not songscript then
+        songisplaying = false
+        playSound("6493287948", 0.1)
+        NotificationLibrary:SendNotification("Error", "Failed to load song data.", 3)
+        return
+    end
+
+    local okLoader = pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/loader_main.lua", true))()
+    end)
+    if not okLoader then
+        pcall(function()
+            loadstring(game:HttpGet("https://hellohellohell0.com/talentless-raw/loader_main.lua", true))()
+        end)
+    end
+
+    local okSong, errSong = pcall(function()
+        loadstring(songscript)()
+    end)
+    if not okSong then
+        songisplaying = false
+        NotificationLibrary:SendNotification("Error", "Song script error.", 3)
+        warn("[AutoPiano] Song error:", errSong)
     end
 end
 
@@ -1268,7 +1298,7 @@ closeButton.MouseButton1Click:Connect(
 infoButton.MouseButton1Click:Connect(
     function()
         loadstring(
-            game:HttpGet("https://raw.githubusercontent.com/hellohellohell012321/TALENTLESS/main/info.lua", true)
+            game:HttpGet("https://hellohellohell0.com/talentless-raw/info.lua", true)
         )()
     end
 )
@@ -1392,7 +1422,7 @@ NEWSONGBUTTON.Visible = false
 print("loaded NEWSONGBUTTON")
 
 NEWSONGBUTTON.MouseButton1Click:Connect(function()
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/add_song.lua", true))()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/main/add_song.lua", true))()
 end)
 
 table.insert(customsongs, NEWSONGBUTTON)
