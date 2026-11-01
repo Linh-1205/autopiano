@@ -1,385 +1,524 @@
 --[[
-  AutoPiano Engine - self-contained note player
-  No external libraries. Defines: keypress, rest, finishedSong, pressnote, etc.
+    AutoPiano engine (self-contained, no external HttpGet)
+
+    Cách hoạt động:
+      1. Sheet chạy 1 lần (khung "record"): keypress/rest chỉ GHI lại timeline, không chờ.
+      2. finishedSong() (hoặc __AP_start) chuyển sang "play": engine phát timeline theo thời gian thực.
+      => Pause / Stop / Seek tới-lui đều chính xác, kể cả tua lùi.
+
+    Globals (sheet dùng): x, bpm, errormargin, pausing, _G.STOPIT, _G.songisplaying, _G.SEEK_SECONDS
 ]]
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+
+local VIM
+pcall(function() VIM = game:GetService("VirtualInputManager") end)
+
+-- dừng engine cũ (nếu chạy lại) trước khi set globals
+if _G.__AP_ENGINE_STOP then pcall(_G.__AP_ENGINE_STOP) end
 
 _G.STOPIT = false
 _G.songisplaying = true
 _G.SEEK_SECONDS = 0
-
-local Players = game:GetService("Players")
-local VIM = game:GetService("VirtualInputManager")
-local CoreGui = game:GetService("CoreGui")
-local UIS = game:GetService("UserInputService")
-local LP = Players.LocalPlayer
-
-x = "hi" -- song scripts pass this as beats (short notes)
-if type(bpm) ~= "number" or bpm <= 0 then
-    bpm = 120
-end
+_G.AP_END = nil
+x = "hi" -- short-note convention
+bpm = bpm or 120
 errormargin = errormargin or 0
 pausing = false
 
-local resumeEvent = Instance.new("BindableEvent")
+local KC = Enum.KeyCode
 
--- minimal notif (self-drawn, no external lib required)
+----------------------------------------------------------------------
+-- State
+----------------------------------------------------------------------
+local S = {
+    events = {},      -- { t=seconds, keys=string, hold=number|nil } | { t=, pedal=true/false }
+    cursor = 0,       -- thời gian (giây) trong lúc record
+    phase = "record", -- record -> play -> live
+    started = false,
+    stopped = false,
+    finished = false,
+    pos = 0,
+    total = 0,
+    held = {},        -- [KeyCode] = token
+    token = 0,
+    shiftCount = 0,
+    conns = {},
+    gui = nil,
+}
+
 local function notify(title, text, dur)
-    dur = dur or 2
-    local ok = pcall(function()
-        local sg = Instance.new("ScreenGui")
-        sg.Name = "APNotif"
-        sg.ResetOnSpawn = false
-        sg.Parent = CoreGui
-        local f = Instance.new("Frame")
-        f.Size = UDim2.new(0, 280, 0, 56)
-        f.Position = UDim2.new(1, -300, 1, -80)
-        f.BackgroundColor3 = Color3.fromRGB(28, 28, 32)
-        f.Parent = sg
-        Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
-        local t = Instance.new("TextLabel")
-        t.BackgroundTransparency = 1
-        t.Size = UDim2.new(1, -16, 0, 20)
-        t.Position = UDim2.new(0, 8, 0, 6)
-        t.Font = Enum.Font.GothamBold
-        t.TextSize = 14
-        t.TextColor3 = Color3.fromRGB(255, 255, 255)
-        t.TextXAlignment = Enum.TextXAlignment.Left
-        t.Text = tostring(title)
-        t.Parent = f
-        local b = Instance.new("TextLabel")
-        b.BackgroundTransparency = 1
-        b.Size = UDim2.new(1, -16, 0, 22)
-        b.Position = UDim2.new(0, 8, 0, 28)
-        b.Font = Enum.Font.Gotham
-        b.TextSize = 13
-        b.TextColor3 = Color3.fromRGB(200, 200, 210)
-        b.TextXAlignment = Enum.TextXAlignment.Left
-        b.Text = tostring(text)
-        b.Parent = f
-        task.delay(dur, function()
-            pcall(function() sg:Destroy() end)
-        end)
-    end)
-    if not ok then
-        print("[AutoPiano]", title, text)
+    local n = _G.AP_Notif
+    if n and n.SendNotification then
+        local ok = pcall(function() n:SendNotification(title, text, dur or 3) end)
+        if ok then return end
     end
+    print("[AutoPiano]", title, text)
 end
 
-local function clickSound()
-    pcall(function()
-        local s = Instance.new("Sound")
-        s.SoundId = "rbxassetid://6493287948"
-        s.Volume = 0.08
-        s.Parent = LP.Character or LP
-        s:Play()
-        game:GetService("Debris"):AddItem(s, 2)
-    end)
+local function getBpm(b)
+    local v = tonumber(b) or tonumber(bpm) or 120
+    if v <= 0 then v = 120 end
+    return v
 end
 
--- key maps (Virtual Piano QWERTY)
-local shiftKeys = {
-    ["!"]=true,["@"]=true,["#"]=true,["$"]=true,["%"]=true,["^"]=true,
-    ["&"]=true,["*"]=true,["("]=true,[")"]=true,
-    ["Q"]=true,["W"]=true,["E"]=true,["R"]=true,["T"]=true,["Y"]=true,
-    ["U"]=true,["I"]=true,["O"]=true,["P"]=true,
-    ["A"]=true,["S"]=true,["D"]=true,["F"]=true,["G"]=true,["H"]=true,
-    ["J"]=true,["K"]=true,["L"]=true,
-    ["Z"]=true,["X"]=true,["C"]=true,["V"]=true,["B"]=true,["N"]=true,["M"]=true,
-}
+----------------------------------------------------------------------
+-- Key map: Virtual Piano (QWERTY)
+--   1234567890 qwertyuiop asdfghjkl zxcvbnm  = 36 phím trắng (C2..C7)
+--   Shift + phím trắng = nốt thăng; chữ hoa / !@#$%^&*() = có Shift
+----------------------------------------------------------------------
+local WHITE = "1234567890qwertyuiopasdfghjklzxcvbnm"
+local digitNames = { "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Zero" }
+local shiftSyms = "!@#$%^&*()"
+local keyMap = {}
 
-local keyMap = {
-    ["1"]=Enum.KeyCode.One,["!"]=Enum.KeyCode.One,
-    ["2"]=Enum.KeyCode.Two,["@"]=Enum.KeyCode.Two,
-    ["3"]=Enum.KeyCode.Three,["#"]=Enum.KeyCode.Three,
-    ["4"]=Enum.KeyCode.Four,["$"]=Enum.KeyCode.Four,
-    ["5"]=Enum.KeyCode.Five,["%"]=Enum.KeyCode.Five,
-    ["6"]=Enum.KeyCode.Six,["^"]=Enum.KeyCode.Six,
-    ["7"]=Enum.KeyCode.Seven,["&"]=Enum.KeyCode.Seven,
-    ["8"]=Enum.KeyCode.Eight,["*"]=Enum.KeyCode.Eight,
-    ["9"]=Enum.KeyCode.Nine,["("]=Enum.KeyCode.Nine,
-    ["0"]=Enum.KeyCode.Zero,[")"]=Enum.KeyCode.Zero,
-    ["q"]=Enum.KeyCode.Q,["Q"]=Enum.KeyCode.Q,
-    ["w"]=Enum.KeyCode.W,["W"]=Enum.KeyCode.W,
-    ["e"]=Enum.KeyCode.E,["E"]=Enum.KeyCode.E,
-    ["r"]=Enum.KeyCode.R,["R"]=Enum.KeyCode.R,
-    ["t"]=Enum.KeyCode.T,["T"]=Enum.KeyCode.T,
-    ["y"]=Enum.KeyCode.Y,["Y"]=Enum.KeyCode.Y,
-    ["u"]=Enum.KeyCode.U,["U"]=Enum.KeyCode.U,
-    ["i"]=Enum.KeyCode.I,["I"]=Enum.KeyCode.I,
-    ["o"]=Enum.KeyCode.O,["O"]=Enum.KeyCode.O,
-    ["p"]=Enum.KeyCode.P,["P"]=Enum.KeyCode.P,
-    ["a"]=Enum.KeyCode.A,["A"]=Enum.KeyCode.A,
-    ["s"]=Enum.KeyCode.S,["S"]=Enum.KeyCode.S,
-    ["d"]=Enum.KeyCode.D,["D"]=Enum.KeyCode.D,
-    ["f"]=Enum.KeyCode.F,["F"]=Enum.KeyCode.F,
-    ["g"]=Enum.KeyCode.G,["G"]=Enum.KeyCode.G,
-    ["h"]=Enum.KeyCode.H,["H"]=Enum.KeyCode.H,
-    ["j"]=Enum.KeyCode.J,["J"]=Enum.KeyCode.J,
-    ["k"]=Enum.KeyCode.K,["K"]=Enum.KeyCode.K,
-    ["l"]=Enum.KeyCode.L,["L"]=Enum.KeyCode.L,
-    ["z"]=Enum.KeyCode.Z,["Z"]=Enum.KeyCode.Z,
-    ["x"]=Enum.KeyCode.X,["X"]=Enum.KeyCode.X,
-    ["c"]=Enum.KeyCode.C,["C"]=Enum.KeyCode.C,
-    ["v"]=Enum.KeyCode.V,["V"]=Enum.KeyCode.V,
-    ["b"]=Enum.KeyCode.B,["B"]=Enum.KeyCode.B,
-    ["n"]=Enum.KeyCode.N,["N"]=Enum.KeyCode.N,
-    ["m"]=Enum.KeyCode.M,["M"]=Enum.KeyCode.M,
-}
-
-local noteMap = {
-    ["C"]  = {[1]="1",[2]="8",[3]="t",[4]="s",[5]="l",[6]="m"},
-    ["C#"] = {[1]="!",[2]="*",[3]="T",[4]="S",[5]="L"},
-    ["D"]  = {[1]="2",[2]="9",[3]="y",[4]="d",[5]="z"},
-    ["D#"] = {[1]="@",[2]="(",[3]="Y",[4]="D",[5]="Z"},
-    ["E"]  = {[1]="3",[2]="0",[3]="u",[4]="f",[5]="x"},
-    ["F"]  = {[1]="4",[2]="q",[3]="i",[4]="g",[5]="c"},
-    ["F#"] = {[1]="$",[2]="Q",[3]="I",[4]="G",[5]="C"},
-    ["G"]  = {[1]="5",[2]="w",[3]="o",[4]="h",[5]="v"},
-    ["G#"] = {[1]="%",[2]="W",[3]="O",[4]="H",[5]="V"},
-    ["A"]  = {[1]="6",[2]="e",[3]="p",[4]="j",[5]="b"},
-    ["A#"] = {[1]="^",[2]="E",[3]="P",[4]="J",[5]="B"},
-    ["B"]  = {[1]="7",[2]="r",[3]="a",[4]="k",[5]="n"},
-}
-
-local function holdTime(beats, useBpm)
-    if type(beats) ~= "number" then
-        return math.random(5, 12) / 100 -- short note
-    end
-    local t = (beats / (useBpm or bpm or 120)) * 60
-    return math.max(0.04, t * 0.85)
+for i = 1, 10 do
+    keyMap[tostring(i % 10)] = { KC[digitNames[i]], false }
+    keyMap[shiftSyms:sub(i, i)] = { KC[digitNames[i]], true }
 end
-
-local function pressOne(key, beats, useBpm)
-    if _G.STOPIT then return end
-    local code = keyMap[key]
-    if not code then return end
-    local needShift = shiftKeys[key] == true
-    if needShift then
-        VIM:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
-    end
-    VIM:SendKeyEvent(true, code, false, game)
-    task.wait(holdTime(beats, useBpm))
-    VIM:SendKeyEvent(false, code, false, game)
-    if needShift then
-        VIM:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
-    end
+for c in ("abcdefghijklmnopqrstuvwxyz"):gmatch(".") do
+    keyMap[c] = { KC[c:upper()], false }
+    keyMap[c:upper()] = { KC[c:upper()], true }
 end
+keyMap[" "] = { KC.Space, false }
 
-local function pressKeys(keys, beats, useBpm)
-    if _G.STOPIT or type(keys) ~= "string" then return end
+local function parseKeys(keys)
+    keys = tostring(keys or "")
     local ctrl = false
-    if keys:sub(1, 5) == "Ctrl+" then
+    if keys:lower():sub(1, 5) == "ctrl+" then
         ctrl = true
         keys = keys:sub(6)
     end
+    local list = {}
     for i = 1, #keys do
-        local key = keys:sub(i, i)
-        task.spawn(function()
-            if _G.STOPIT then return end
-            if ctrl then
-                VIM:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
-            end
-            pressOne(key, beats, useBpm)
-            if ctrl then
-                VIM:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
-            end
-        end)
-        if errormargin and errormargin > 0 and math.random() < 0.4 then
-            task.wait(math.random() * errormargin / 3)
-        end
+        local e = keyMap[keys:sub(i, i)]
+        if e then list[#list + 1] = { kc = e[1], shift = e[2] } end
+    end
+    return list, ctrl
+end
+
+local function sendKey(kc, down)
+    if not VIM then return end
+    pcall(function() VIM:SendKeyEvent(down, kc, false, game) end)
+end
+
+local function shiftAcquire()
+    S.shiftCount = S.shiftCount + 1
+    if S.shiftCount == 1 then sendKey(KC.LeftShift, true) end
+end
+local function shiftRelease()
+    if S.shiftCount <= 0 then return end
+    S.shiftCount = S.shiftCount - 1
+    if S.shiftCount == 0 then sendKey(KC.LeftShift, false) end
+end
+
+local function pressDown(kc)
+    if S.held[kc] then sendKey(kc, false) end -- nhấn lại cùng phím: nhả trước
+    S.token = S.token + 1
+    local tk = S.token
+    S.held[kc] = tk
+    sendKey(kc, true)
+    return tk
+end
+local function pressUp(kc, tk)
+    if S.held[kc] == tk then
+        S.held[kc] = nil
+        sendKey(kc, false)
     end
 end
 
--- ===== Public API (used by song scripts) =====
+local function releaseAll()
+    for kc in pairs(S.held) do sendKey(kc, false) end
+    S.held = {}
+    S.shiftCount = 0
+    sendKey(KC.LeftShift, false)
+    sendKey(KC.LeftControl, false)
+    sendKey(KC.Space, false)
+end
 
-function keypress(keys, beats, useBpm)
-    if _G.STOPIT then return end
-    if pausing then resumeEvent.Event:Wait() end
+-- Gõ 1..n phím cùng lúc (chord), async để không block
+local function pressChord(keys, hold)
+    local list, ctrl = parseKeys(keys)
+    if #list == 0 then return end
+    hold = hold or (math.random(50, 120) / 1000)
     task.spawn(function()
-        if _G.STOPIT then return end
-        pressKeys(keys, beats, useBpm or bpm)
+        local downs = {}
+        if ctrl then sendKey(KC.LeftControl, true) end
+        for _, e in ipairs(list) do
+            if not e.shift then downs[#downs + 1] = { e.kc, pressDown(e.kc) } end
+        end
+        local needShift = false
+        for _, e in ipairs(list) do
+            if e.shift then
+                needShift = true
+                break
+            end
+        end
+        local used = 0
+        if needShift then
+            shiftAcquire()
+            for _, e in ipairs(list) do
+                if e.shift then downs[#downs + 1] = { e.kc, pressDown(e.kc) } end
+            end
+            local t0 = os.clock()
+            task.wait() -- giữ Shift đúng 1 frame, đủ để game đọc trạng thái lúc keydown
+            used = os.clock() - t0
+            shiftRelease()
+        end
+        if hold > used then task.wait(hold - used) end
+        for _, d in ipairs(downs) do pressUp(d[1], d[2]) end
+        if ctrl then sendKey(KC.LeftControl, false) end
     end)
 end
 
-function rest(beats, useBpm)
-    if _G.STOPIT then return end
-    if pausing then resumeEvent.Event:Wait() end
-    local t = (tonumber(beats) or 0) / (useBpm or bpm or 120) * 60
-    if _G.SEEK_SECONDS and _G.SEEK_SECONDS > 0 then
-        if _G.SEEK_SECONDS >= t then
-            _G.SEEK_SECONDS = _G.SEEK_SECONDS - t
-            return
-        end
-        t = t - _G.SEEK_SECONDS
-        _G.SEEK_SECONDS = 0
+----------------------------------------------------------------------
+-- Control panel
+----------------------------------------------------------------------
+local ACCENT = Color3.fromRGB(255, 182, 208)
+local BG = Color3.fromRGB(20, 20, 28)
+local BTN = Color3.fromRGB(38, 38, 52)
+
+local function destroyPanel()
+    for _, c in ipairs(S.conns) do pcall(function() c:Disconnect() end) end
+    S.conns = {}
+    if S.gui then
+        pcall(function() S.gui:Destroy() end)
+        S.gui = nil
     end
-    if t > 0 then
-        task.wait(t)
+    S.timeLabel = nil
+end
+
+local function fmtTime(sec)
+    sec = math.max(0, math.floor(sec))
+    return string.format("%d:%02d", math.floor(sec / 60), sec % 60)
+end
+
+local function newObj(class, props, parent)
+    local o = Instance.new(class)
+    for k, v in pairs(props) do o[k] = v end
+    o.Parent = parent
+    return o
+end
+
+local function buildPanel()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "APControls"
+    gui.ResetOnSpawn = false
+    gui.DisplayOrder = 999
+    local ok = pcall(function() gui.Parent = CoreGui end)
+    if not ok then
+        gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+    end
+    S.gui = gui
+
+    local frame = newObj("Frame", {
+        Name = "Panel",
+        Size = UDim2.new(0, 260, 0, 96),
+        Position = UDim2.new(0.5, -130, 0, 24),
+        BackgroundColor3 = BG,
+        BorderSizePixel = 0,
+        Active = true,
+    }, gui)
+    newObj("UICorner", { CornerRadius = UDim.new(0, 10) }, frame)
+    newObj("UIStroke", { Color = ACCENT, Thickness = 1, Transparency = 0.5 }, frame)
+
+    newObj("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 12, 0, 8),
+        Size = UDim2.new(0.5, 0, 0, 22),
+        Text = "AutoPiano",
+        Font = Enum.Font.GothamBold,
+        TextSize = 15,
+        TextColor3 = ACCENT,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, frame)
+    S.timeLabel = newObj("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0.5, 0, 0, 8),
+        Size = UDim2.new(0.5, -12, 0, 22),
+        Text = "0:00 / " .. fmtTime(S.total),
+        Font = Enum.Font.Gotham,
+        TextSize = 13,
+        TextColor3 = Color3.fromRGB(200, 200, 215),
+        TextXAlignment = Enum.TextXAlignment.Right,
+    }, frame)
+
+    local function button(text, i, cb)
+        local b = newObj("TextButton", {
+            Position = UDim2.new(0, 9 + (i - 1) * 62, 0, 52),
+            Size = UDim2.new(0, 56, 0, 32),
+            BackgroundColor3 = BTN,
+            BorderSizePixel = 0,
+            Text = text,
+            Font = Enum.Font.GothamMedium,
+            TextSize = 12,
+            TextColor3 = Color3.fromRGB(235, 235, 245),
+            AutoButtonColor = true,
+        }, frame)
+        newObj("UICorner", { CornerRadius = UDim.new(0, 8) }, b)
+        table.insert(S.conns, b.Activated:Connect(cb))
+        return b
+    end
+
+    local pauseBtn
+    pauseBtn = button("Pause", 1, function()
+        pausing = not pausing
+        pauseBtn.Text = pausing and "Resume" or "Pause"
+    end)
+    button("Stop", 2, function() _G.stopPlayingSongs() end)
+    button("<< 5s", 3, function() _G.SEEK_SECONDS = -5 end)
+    button(">> 5s", 4, function() _G.SEEK_SECONDS = 5 end)
+
+    -- kéo thả
+    local dragging, dragStart, startPos = false, nil, nil
+    local function isPointer(i)
+        return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
+    end
+    table.insert(S.conns, frame.InputBegan:Connect(function(input)
+        if isPointer(input) then
+            dragging, dragStart, startPos = true, input.Position, frame.Position
+        end
+    end))
+    table.insert(S.conns, UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch) then
+            local d = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        end
+    end))
+    table.insert(S.conns, UserInputService.InputEnded:Connect(function(input)
+        if isPointer(input) then dragging = false end
+    end))
+end
+
+----------------------------------------------------------------------
+-- Kết thúc / dừng
+----------------------------------------------------------------------
+local function finish()
+    if S.finished then return end
+    S.finished = true
+    S.stopped = true
+    releaseAll()
+    _G.STOPIT = true
+    _G.songisplaying = false
+    _G.AP_END = "finished"
+    destroyPanel()
+    notify("Success", "Song finished", 3)
+    print("[AutoPiano] Song finished")
+end
+
+function stopPlayingSongs()
+    if S.finished then return end
+    S.finished = true
+    S.stopped = true
+    releaseAll()
+    _G.STOPIT = true
+    _G.songisplaying = false
+    _G.AP_END = "stopped"
+    destroyPanel()
+    notify("Info", "Playback stopped", 2)
+    print("[AutoPiano] Stopped")
+end
+_G.stopPlayingSongs = stopPlayingSongs
+
+-- engine cũ bị thay thế: dừng im lặng
+_G.__AP_ENGINE_STOP = function()
+    S.finished = true
+    S.stopped = true
+    releaseAll()
+    destroyPanel()
+end
+
+----------------------------------------------------------------------
+-- Player (phát timeline)
+----------------------------------------------------------------------
+local function startPlayback()
+    if S.started then return end
+    S.started = true
+    S.phase = "play"
+
+    local ev = S.events
+    local n = #ev
+    local total = S.cursor
+    for i = 1, n do
+        local e = ev[i]
+        local e_end = e.t + (e.hold or 0.1)
+        if e_end > total then total = e_end end
+    end
+    S.total = total
+    print(string.format("[AutoPiano] Engine ready: %d events, %.1fs", n, total))
+
+    if n == 0 then
+        finish()
+        return
+    end
+
+    local okp, errp = pcall(buildPanel)
+    if not okp then
+        warn("[AutoPiano] Control panel failed: " .. tostring(errp))
+    end
+
+    task.spawn(function()
+        local idx = 1
+        local last = os.clock()
+        local lastLabel = 0
+        while not S.stopped do
+            local now = os.clock()
+            local dt = now - last
+            last = now
+            if dt > 0.5 then dt = 0.5 end
+
+            local sk = tonumber(_G.SEEK_SECONDS) or 0
+            if sk ~= 0 then
+                _G.SEEK_SECONDS = 0
+                S.pos = math.min(math.max(0, S.pos + sk), S.total)
+                idx = 1
+                while idx <= n and ev[idx].t < S.pos do idx = idx + 1 end
+                releaseAll()
+            end
+
+            if not pausing then S.pos = S.pos + dt end
+
+            while idx <= n and ev[idx].t <= S.pos do
+                local e = ev[idx]
+                if e.pedal ~= nil then
+                    sendKey(KC.Space, e.pedal)
+                else
+                    pressChord(e.keys, e.hold)
+                end
+                idx = idx + 1
+            end
+
+            if S.timeLabel and now - lastLabel > 0.2 then
+                lastLabel = now
+                pcall(function()
+                    S.timeLabel.Text = fmtTime(math.min(S.pos, S.total)) .. " / " .. fmtTime(S.total)
+                end)
+            end
+
+            if idx > n and S.pos >= S.total then
+                finish()
+                break
+            end
+            task.wait()
+        end
+    end)
+end
+_G.__AP_start = startPlayback
+
+----------------------------------------------------------------------
+-- Public API (sheet gọi được)
+----------------------------------------------------------------------
+function keypress(keys, beats, b)
+    local bp = getBpm(b)
+    local hold
+    if type(beats) == "number" then hold = math.max(beats / bp * 60, 0.05) end
+    if S.phase == "record" then
+        S.events[#S.events + 1] = { t = S.cursor, keys = tostring(keys), hold = hold }
+    else
+        pressChord(keys, hold)
+    end
+end
+
+function rest(beats, b)
+    local secs = (tonumber(beats) or 0) / getBpm(b) * 60
+    if S.phase == "record" then
+        S.cursor = S.cursor + secs
+        return
+    end
+    -- live: chờ thật, tôn trọng pause + seek
+    local remaining = secs
+    local last = os.clock()
+    while remaining > 0 and not S.stopped do
+        local now = os.clock()
+        local dt = now - last
+        last = now
+        local sk = tonumber(_G.SEEK_SECONDS) or 0
+        if sk > 0 then
+            remaining = remaining - sk
+            _G.SEEK_SECONDS = 0
+        elseif sk < 0 then
+            _G.SEEK_SECONDS = 0
+        end
+        if not pausing then remaining = remaining - dt end
+        if remaining > 0 then task.wait() end
     end
 end
 
 function finishedSong()
-    if _G.STOPIT then return end
-    clickSound()
-    notify("Done", "Song finished.", 2)
-    _G.STOPIT = true
-    _G.songisplaying = false
-    songisplaying = false
-    if _G.APControls then
-        pcall(function() _G.APControls:Destroy() end)
-        _G.APControls = nil
+    if S.phase == "record" then
+        startPlayback()
+    else
+        finish()
     end
-end
-
-function pressnote(note, octave, beats, useBpm)
-    local key = noteMap[note] and noteMap[note][octave]
-    if key then
-        keypress(key, beats, useBpm)
-    end
-end
-
-function keysequence16(keys, beats, useBpm)
-    for i = 1, #keys do
-        if _G.STOPIT then return end
-        keypress(keys:sub(i, i), beats, useBpm)
-        rest(0.25, useBpm)
-    end
-end
-
-function adjustVelocity(vel)
-    -- optional: virtual piano velocity via Alt+key; skip if unwanted
 end
 
 function pedalDown()
-    if _G.STOPIT then return end
-    VIM:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+    if S.phase == "record" then
+        S.events[#S.events + 1] = { t = S.cursor, pedal = true }
+    else
+        sendKey(KC.Space, true)
+    end
 end
 
 function pedalUp()
-    if _G.STOPIT then return end
-    VIM:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
-end
-
-function stopPlayingSongs()
-    _G.STOPIT = true
-    _G.songisplaying = false
-    songisplaying = false
-    clickSound()
-    notify("Stop", "Stopped.", 1)
-    if _G.APControls then
-        pcall(function() _G.APControls:Destroy() end)
-        _G.APControls = nil
-    end
-end
-
--- ===== Control UI =====
-pcall(function()
-    local old = CoreGui:FindFirstChild("APControls")
-    if old then old:Destroy() end
-end)
-
-local guiParent = CoreGui
-pcall(function()
-    if not guiParent then
-        guiParent = LP:WaitForChild("PlayerGui")
-    end
-end)
-
-local sg = Instance.new("ScreenGui")
-sg.Name = "APControls"
-sg.ResetOnSpawn = false
-sg.DisplayOrder = 120
-sg.Parent = guiParent
-_G.APControls = sg
-
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 320, 0, 110)
-frame.Position = UDim2.new(0.5, -160, 0.75, 0)
-frame.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
-frame.BorderSizePixel = 0
-frame.Parent = sg
-Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
-
-local stroke = Instance.new("UIStroke", frame)
-stroke.Color = Color3.fromRGB(255, 120, 160)
-stroke.Thickness = 1.2
-stroke.Transparency = 0.35
-
-local title = Instance.new("TextLabel")
-title.BackgroundTransparency = 1
-title.Size = UDim2.new(1, -16, 0, 22)
-title.Position = UDim2.new(0, 10, 0, 6)
-title.Font = Enum.Font.GothamBold
-title.TextSize = 14
-title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "AutoPiano  |  BPM " .. tostring(bpm)
-title.Parent = frame
-
-local function mkBtn(text, x, w, callback)
-    local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0, w, 0, 36)
-    b.Position = UDim2.new(0, x, 0, 40)
-    b.BackgroundColor3 = Color3.fromRGB(48, 48, 56)
-    b.Text = text
-    b.Font = Enum.Font.GothamBold
-    b.TextSize = 14
-    b.TextColor3 = Color3.fromRGB(255, 255, 255)
-    b.Parent = frame
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
-    b.MouseButton1Click:Connect(callback)
-    return b
-end
-
-mkBtn("Pause", 10, 70, function()
-    pausing = not pausing
-    if not pausing then
-        resumeEvent:Fire()
-        notify("Resume", "Playing", 1)
+    if S.phase == "record" then
+        S.events[#S.events + 1] = { t = S.cursor, pedal = false }
     else
-        notify("Pause", "Paused", 1)
+        sendKey(KC.Space, false)
     end
-    clickSound()
-end)
-
-mkBtn("Stop", 90, 70, function()
-    stopPlayingSongs()
-end)
-
-mkBtn("<< 5s", 170, 60, function()
-    _G.SEEK_SECONDS = math.max(0, (_G.SEEK_SECONDS or 0) - 5)
-    notify("Seek", "-5s", 1)
-    clickSound()
-end)
-
-mkBtn(">> 5s", 240, 60, function()
-    _G.SEEK_SECONDS = (_G.SEEK_SECONDS or 0) + 5
-    notify("Seek", "+5s", 1)
-    clickSound()
-end)
-
--- drag
-do
-    local dragging, start, startPos
-    frame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            start = input.Position
-            startPos = frame.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
-    UIS.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local d = input.Position - start
-            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
-        end
-    end)
 end
 
-notify("Play", "Engine ready", 1)
-print("[AutoPiano] Engine loaded. BPM=", bpm)
+function adjustVelocity(vel) end -- no-op
+
+-- midi (C4 = 60) -> ký tự Virtual Piano; nil nếu ngoài C2..C7
+local WHITE_DEGREE = { [0] = 0, [2] = 1, [4] = 2, [5] = 3, [7] = 4, [9] = 5, [11] = 6 }
+local function midiToKey(m)
+    if m < 36 or m > 96 then return nil end
+    local oct = math.floor(m / 12) - 1
+    local pc = m % 12
+    local sharp = false
+    if WHITE_DEGREE[pc] == nil then
+        pc = pc - 1
+        sharp = true
+    end
+    local idx = (oct - 2) * 7 + WHITE_DEGREE[pc] + 1
+    local ch = WHITE:sub(idx, idx)
+    if ch == "" then return nil end
+    if sharp then
+        local d = tonumber(ch)
+        if d then
+            ch = shiftSyms:sub((d == 0) and 10 or d, (d == 0) and 10 or d)
+        else
+            ch = ch:upper()
+        end
+    end
+    return ch
+end
+
+function pressnote(note, octave, beats, b)
+    local letter, acc = tostring(note):match("^%s*([A-Ga-g])([#bB]?)")
+    if not letter then return end
+    local semi = ({ C = 0, D = 2, E = 4, F = 5, G = 7, A = 9, B = 11 })[letter:upper()]
+    if acc == "#" then
+        semi = semi + 1
+    elseif acc == "b" or acc == "B" then
+        semi = semi - 1
+    end
+    local m = (tonumber(octave) or 4) * 12 + 12 + semi
+    local ch = midiToKey(m)
+    if ch then keypress(ch, beats, b) end
+end
+
+function keysequence16(keys, beats, b)
+    keys = tostring(keys)
+    for i = 1, #keys do
+        keypress(keys:sub(i, i), beats, b)
+        rest(0.25, b)
+    end
+end
+
+function stopPlayingSongsGlobal() stopPlayingSongs() end
