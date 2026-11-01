@@ -22,6 +22,7 @@ if _G.__AP_ENGINE_STOP then pcall(_G.__AP_ENGINE_STOP) end
 _G.STOPIT = false
 _G.songisplaying = true
 _G.SEEK_SECONDS = 0
+_G.SEEK_TO = nil -- tua tới vị trí tuyệt đối (giây), dùng cho thanh kéo
 _G.AP_END = nil
 x = "hi" -- short-note convention
 bpm = bpm or 120
@@ -80,7 +81,7 @@ for i = 1, 10 do
 end
 for c in ("abcdefghijklmnopqrstuvwxyz"):gmatch(".") do
     keyMap[c] = { KC[c:upper()], false }
-    keyMap[c:upper()] = { KC[c:upper()], true }
+    keyMap[c:upper()] = { KC[c:upper()], false } -- chữ hoa: nhấn thẳng phím, KHÔNG kèm Shift
 end
 keyMap[" "] = { KC.Space, false }
 
@@ -215,7 +216,7 @@ local function buildPanel()
 
     local frame = newObj("Frame", {
         Name = "Panel",
-        Size = UDim2.new(0, 260, 0, 96),
+        Size = UDim2.new(0, 260, 0, 122),
         Position = UDim2.new(0.5, -130, 0, 24),
         BackgroundColor3 = BG,
         BorderSizePixel = 0,
@@ -247,7 +248,7 @@ local function buildPanel()
 
     local function button(text, i, cb)
         local b = newObj("TextButton", {
-            Position = UDim2.new(0, 9 + (i - 1) * 62, 0, 52),
+            Position = UDim2.new(0, 9 + (i - 1) * 62, 0, 80),
             Size = UDim2.new(0, 56, 0, 32),
             BackgroundColor3 = BTN,
             BorderSizePixel = 0,
@@ -277,7 +278,7 @@ local function buildPanel()
         return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
     end
     table.insert(S.conns, frame.InputBegan:Connect(function(input)
-        if isPointer(input) then
+        if isPointer(input) and not S.sliding then
             dragging, dragStart, startPos = true, input.Position, frame.Position
         end
     end))
@@ -291,6 +292,76 @@ local function buildPanel()
     end))
     table.insert(S.conns, UserInputService.InputEnded:Connect(function(input)
         if isPointer(input) then dragging = false end
+    end))
+
+    ----------------------------------------------------------------
+    -- Thanh kéo tua: kéo tới đâu, thả ra thì nhảy tới đó
+    ----------------------------------------------------------------
+    local hit = newObj("TextButton", {
+        Position = UDim2.new(0, 12, 0, 38),
+        Size = UDim2.new(1, -24, 0, 28),
+        BackgroundTransparency = 1,
+        Text = "",
+        AutoButtonColor = false,
+    }, frame)
+    local track = newObj("Frame", {
+        Position = UDim2.new(0, 0, 0.5, -3),
+        Size = UDim2.new(1, 0, 0, 6),
+        BackgroundColor3 = BTN,
+        BorderSizePixel = 0,
+    }, hit)
+    newObj("UICorner", { CornerRadius = UDim.new(0, 3) }, track)
+    local fill = newObj("Frame", {
+        Size = UDim2.new(0, 0, 1, 0),
+        BackgroundColor3 = ACCENT,
+        BorderSizePixel = 0,
+    }, track)
+    newObj("UICorner", { CornerRadius = UDim.new(0, 3) }, fill)
+    local knob = newObj("Frame", {
+        Size = UDim2.new(0, 14, 0, 14),
+        Position = UDim2.new(0, -7, 0.5, -7),
+        BackgroundColor3 = ACCENT,
+        BorderSizePixel = 0,
+    }, track)
+    newObj("UICorner", { CornerRadius = UDim.new(1, 0) }, knob)
+
+    S.setSlider = function(ratio)
+        ratio = math.clamp(ratio, 0, 1)
+        fill.Size = UDim2.new(ratio, 0, 1, 0)
+        knob.Position = UDim2.new(ratio, -7, 0.5, -7)
+    end
+
+    local function ratioFromInput(input)
+        local w = hit.AbsoluteSize.X
+        if w <= 0 then return 0 end
+        return math.clamp((input.Position.X - hit.AbsolutePosition.X) / w, 0, 1)
+    end
+    local function preview(ratio)
+        S.slideRatio = ratio
+        S.setSlider(ratio)
+        if S.timeLabel then
+            S.timeLabel.Text = fmtTime(ratio * S.total) .. " / " .. fmtTime(S.total)
+        end
+    end
+
+    table.insert(S.conns, hit.InputBegan:Connect(function(input)
+        if isPointer(input) then
+            S.sliding = true
+            dragging = false -- không kéo cả panel khi đang kéo thanh
+            preview(ratioFromInput(input))
+        end
+    end))
+    table.insert(S.conns, UserInputService.InputChanged:Connect(function(input)
+        if S.sliding and (input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch) then
+            preview(ratioFromInput(input))
+        end
+    end))
+    table.insert(S.conns, UserInputService.InputEnded:Connect(function(input)
+        if S.sliding and isPointer(input) then
+            S.sliding = false
+            _G.SEEK_TO = (S.slideRatio or 0) * S.total
+        end
     end))
 end
 
@@ -372,9 +443,11 @@ local function startPlayback()
             if dt > 0.5 then dt = 0.5 end
 
             local sk = tonumber(_G.SEEK_SECONDS) or 0
-            if sk ~= 0 then
+            local st = tonumber(_G.SEEK_TO)
+            if sk ~= 0 or st then
                 _G.SEEK_SECONDS = 0
-                S.pos = math.min(math.max(0, S.pos + sk), S.total)
+                _G.SEEK_TO = nil
+                S.pos = math.min(math.max(0, (st or S.pos) + sk), S.total)
                 idx = 1
                 while idx <= n and ev[idx].t < S.pos do idx = idx + 1 end
                 releaseAll()
@@ -392,10 +465,11 @@ local function startPlayback()
                 idx = idx + 1
             end
 
-            if S.timeLabel and now - lastLabel > 0.2 then
+            if S.timeLabel and not S.sliding and now - lastLabel > 0.1 then
                 lastLabel = now
                 pcall(function()
                     S.timeLabel.Text = fmtTime(math.min(S.pos, S.total)) .. " / " .. fmtTime(S.total)
+                    if S.setSlider and S.total > 0 then S.setSlider(S.pos / S.total) end
                 end)
             end
 
