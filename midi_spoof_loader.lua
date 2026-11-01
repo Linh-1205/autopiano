@@ -3,8 +3,14 @@
 
 _G.STOPIT = false
 
-local NotificationLibrary =
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/hellohellohell012321/TALENTLESS/main/notif_lib.lua"))()
+local function createNotifLib()
+    local ok, lib = pcall(function()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/notif_lib.lua", true))()
+    end)
+    if ok and lib then return lib end
+    return { SendNotification = function(_, t, m) print("[Notif]", t, m) end }
+end
+local NotificationLibrary = createNotifLib()
 
 function playSound(soundId, loudness)
     local sound = Instance.new("Sound")

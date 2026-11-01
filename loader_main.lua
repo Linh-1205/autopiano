@@ -1,10 +1,22 @@
--- some parts are skidded from chatgpt
--- the comments are not from chatgpt though becvause i legitamately need them for debugging and to easily know whats going on if theres an issue
-
+-- AutoPiano Loader (improved note reliability + seek controls)
 _G.STOPIT = false
+_G.SEEK_SECONDS = 0          -- accumulated seek offset (positive = skip forward)
+_G.NOTE_QUEUE = {}           -- optional future use
 
-local NotificationLibrary =
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/hellohellohell012321/TALENTLESS/main/notif_lib.lua"))()
+-- Self-contained notification (no external dependency)
+local function createNotifLib()
+    local ok, lib = pcall(function()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/notif_lib.lua", true))()
+    end)
+    if ok and lib then return lib end
+    -- fallback minimal
+    return {
+        SendNotification = function(_, title, text, dur)
+            print("[Notif]", title, text)
+        end
+    }
+end
+local NotificationLibrary = createNotifLib()
 
 function playSound(soundId, loudness)
     local sound = Instance.new("Sound")
@@ -15,149 +27,159 @@ function playSound(soundId, loudness)
 end
 
 x = "hi"
-
 loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/load.lua", true))()
-
 wait(0.3)
-
 playSound("6493287948", 0.1)
 NotificationLibrary:SendNotification("Success", "Began playing song.", 1)
 
--- StarterGui.ScreenGui
+-- ===== CONTROL GUI =====
 lilgui = Instance.new("ScreenGui", game:GetService("CoreGui"))
-lilgui["ZIndexBehavior"] = Enum.ZIndexBehavior.Sibling
+lilgui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+lilgui.Name = "AutoPianoControls"
 
--- StarterGui.ScreenGui.Frame
 local fram = Instance.new("Frame", lilgui)
-fram["BorderSizePixel"] = 0
-fram["BackgroundColor3"] = Color3.fromRGB(32, 32, 32)
-fram["Size"] = UDim2.new(0, 327, 0, 119)
-fram["Position"] = UDim2.new(0.5, 0, 0.5, 0)
-fram["BorderColor3"] = Color3.fromRGB(0, 0, 0)
+fram.BorderSizePixel = 0
+fram.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
+fram.Size = UDim2.new(0, 380, 0, 150)
+fram.Position = UDim2.new(0.5, 0, 0.5, 0)
+fram.BorderColor3 = Color3.fromRGB(0, 0, 0)
 fram.AnchorPoint = Vector2.new(0.5, 0.5)
 
--- StarterGui.ScreenGui.Frame.UICorner
 local uic = Instance.new("UICorner", fram)
+uic.CornerRadius = UDim.new(0, 12)
 
--- StarterGui.ScreenGui.Frame.pause
+local stroke = Instance.new("UIStroke", fram)
+stroke.Color = Color3.fromRGB(255, 120, 160)
+stroke.Thickness = 1.5
+stroke.Transparency = 0.4
+
+-- Pause
 local pausebutton = Instance.new("ImageButton", fram)
-pausebutton["BorderSizePixel"] = 0
-pausebutton["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
-pausebutton["Image"] = [[http://www.roblox.com/asset/?id=86903979265676]]
-pausebutton["Size"] = UDim2.new(0, 50, 0, 50)
-pausebutton["Name"] = [[pause]]
-pausebutton["BorderColor3"] = Color3.fromRGB(0, 0, 0)
-pausebutton["Position"] = UDim2.new(0.04171, 0, 0.09428, 0)
+pausebutton.BorderSizePixel = 0
 pausebutton.BackgroundTransparency = 1
+pausebutton.Image = "http://www.roblox.com/asset/?id=86903979265676"
+pausebutton.Size = UDim2.new(0, 42, 0, 42)
+pausebutton.Name = "pause"
+pausebutton.Position = UDim2.new(0, 12, 0, 12)
 
--- StarterGui.ScreenGui.Frame.stop
+-- Stop
 stopbutton = Instance.new("ImageButton", fram)
-stopbutton["BorderSizePixel"] = 0
-stopbutton["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
-stopbutton["Image"] = [[http://www.roblox.com/asset/?id=99665585363395]]
-stopbutton["Size"] = UDim2.new(0, 50, 0, 50)
-stopbutton["Name"] = [[stop]]
-stopbutton["BorderColor3"] = Color3.fromRGB(0, 0, 0)
-stopbutton["Position"] = UDim2.new(0.25134, 0, 0.09428, 0)
+stopbutton.BorderSizePixel = 0
 stopbutton.BackgroundTransparency = 1
+stopbutton.Image = "http://www.roblox.com/asset/?id=99665585363395"
+stopbutton.Size = UDim2.new(0, 42, 0, 42)
+stopbutton.Name = "stop"
+stopbutton.Position = UDim2.new(0, 62, 0, 12)
 
--- StarterGui.ScreenGui.Frame.bpm
+-- Seek back 5s
+local seekBack = Instance.new("TextButton", fram)
+seekBack.Size = UDim2.new(0, 42, 0, 42)
+seekBack.Position = UDim2.new(0, 112, 0, 12)
+seekBack.BackgroundColor3 = Color3.fromRGB(50, 50, 58)
+seekBack.Text = "⏪"
+seekBack.TextSize = 18
+seekBack.Font = Enum.Font.GothamBold
+seekBack.TextColor3 = Color3.fromRGB(255, 255, 255)
+seekBack.Name = "seekBack"
+Instance.new("UICorner", seekBack).CornerRadius = UDim.new(0, 8)
+
+-- Seek forward 5s
+local seekFwd = Instance.new("TextButton", fram)
+seekFwd.Size = UDim2.new(0, 42, 0, 42)
+seekFwd.Position = UDim2.new(0, 162, 0, 12)
+seekFwd.BackgroundColor3 = Color3.fromRGB(50, 50, 58)
+seekFwd.Text = "⏩"
+seekFwd.TextSize = 18
+seekFwd.Font = Enum.Font.GothamBold
+seekFwd.TextColor3 = Color3.fromRGB(255, 255, 255)
+seekFwd.Name = "seekFwd"
+Instance.new("UICorner", seekFwd).CornerRadius = UDim.new(0, 8)
+
+-- BPM label
 local bpmtext = Instance.new("TextLabel", fram)
-bpmtext["TextWrapped"] = true
-bpmtext["BorderSizePixel"] = 0
-bpmtext["TextSize"] = 14
-bpmtext["TextScaled"] = true
-bpmtext["BackgroundColor3"] = Color3.fromRGB(255, 108, 154)
-bpmtext["FontFace"] =
-    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Bold, Enum.FontStyle.Normal)
-bpmtext["TextColor3"] = Color3.fromRGB(0, 0, 0)
-bpmtext["Size"] = UDim2.new(0, 122, 0, 34)
-bpmtext["BorderColor3"] = Color3.fromRGB(0, 0, 0)
-bpmtext["Text"] = "BPM: " .. tostring(bpm)
-bpmtext["Name"] = [[bpm]]
-bpmtext["Position"] = UDim2.new(0.51155, 0, 0.15823, 0)
+bpmtext.TextWrapped = true
+bpmtext.BorderSizePixel = 0
+bpmtext.TextSize = 14
+bpmtext.TextScaled = true
+bpmtext.BackgroundColor3 = Color3.fromRGB(255, 108, 154)
+bpmtext.Font = Enum.Font.GothamBold
+bpmtext.TextColor3 = Color3.fromRGB(0, 0, 0)
+bpmtext.Size = UDim2.new(0, 110, 0, 32)
+bpmtext.Text = "BPM: " .. tostring(bpm or 120)
+bpmtext.Name = "bpm"
+bpmtext.Position = UDim2.new(0, 220, 0, 12)
+Instance.new("UICorner", bpmtext).CornerRadius = UDim.new(0, 6)
 
--- StarterGui.ScreenGui.Frame.up
 local upbpm = Instance.new("TextButton", fram)
-upbpm["TextWrapped"] = true
-upbpm["BorderSizePixel"] = 0
-upbpm["TextColor3"] = Color3.fromRGB(255, 255, 255)
-upbpm["TextSize"] = 14
-upbpm["TextScaled"] = true
-upbpm["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
-upbpm["FontFace"] =
-    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Bold, Enum.FontStyle.Normal)
-upbpm["Size"] = UDim2.new(0, 34, 0, 34)
-upbpm["BackgroundTransparency"] = 1
-upbpm["Name"] = [[up]]
-upbpm["BorderColor3"] = Color3.fromRGB(0, 0, 0)
-upbpm["Text"] = [[^]]
-upbpm["Position"] = UDim2.new(0.40495, 0, 0.15823, 0)
+upbpm.BorderSizePixel = 0
+upbpm.TextColor3 = Color3.fromRGB(255, 255, 255)
+upbpm.TextSize = 16
+upbpm.BackgroundTransparency = 1
+upbpm.Font = Enum.Font.GothamBold
+upbpm.Size = UDim2.new(0, 28, 0, 28)
+upbpm.Name = "up"
+upbpm.Text = "▲"
+upbpm.Position = UDim2.new(0, 335, 0, 4)
 
--- StarterGui.ScreenGui.Frame.down
 local downbpm = Instance.new("TextButton", fram)
-downbpm["TextWrapped"] = true
-downbpm["BorderSizePixel"] = 0
-downbpm["TextColor3"] = Color3.fromRGB(255, 255, 255)
-downbpm["TextSize"] = 14
-downbpm["TextScaled"] = true
-downbpm["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
-downbpm["FontFace"] =
-    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Bold, Enum.FontStyle.Normal)
-downbpm["Size"] = UDim2.new(0, 34, 0, 34)
-downbpm["BackgroundTransparency"] = 1
-downbpm["Name"] = [[down]]
-downbpm["BorderColor3"] = Color3.fromRGB(0, 0, 0)
-downbpm["Text"] = [[v]]
-downbpm["Position"] = UDim2.new(0.88463, 0, 0.15823, 0)
+downbpm.BorderSizePixel = 0
+downbpm.TextColor3 = Color3.fromRGB(255, 255, 255)
+downbpm.TextSize = 16
+downbpm.BackgroundTransparency = 1
+downbpm.Font = Enum.Font.GothamBold
+downbpm.Size = UDim2.new(0, 28, 0, 28)
+downbpm.Name = "down"
+downbpm.Text = "▼"
+downbpm.Position = UDim2.new(0, 335, 0, 28)
 
--- StarterGui.ScreenGui.Frame.errorbox
+-- Error margin
 local errorbox = Instance.new("TextLabel", fram)
-errorbox["TextWrapped"] = true
-errorbox["BorderSizePixel"] = 0
-errorbox["TextSize"] = 14
-errorbox["TextScaled"] = true
-errorbox["BackgroundColor3"] = Color3.fromRGB(255, 109, 155)
-errorbox["FontFace"] =
-    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Bold, Enum.FontStyle.Normal)
-errorbox["TextColor3"] = Color3.fromRGB(0, 0, 0)
-errorbox["Size"] = UDim2.new(0, 117, 0, 31)
-errorbox["BorderColor3"] = Color3.fromRGB(0, 0, 0)
-errorbox["Text"] = [[error margin: 0.00]]
-errorbox["Name"] = [[errorbox]]
-errorbox["Position"] = UDim2.new(0.11705, 0, 0.59848, 0)
+errorbox.TextWrapped = true
+errorbox.BorderSizePixel = 0
+errorbox.TextSize = 13
+errorbox.TextScaled = true
+errorbox.BackgroundColor3 = Color3.fromRGB(255, 109, 155)
+errorbox.Font = Enum.Font.GothamBold
+errorbox.TextColor3 = Color3.fromRGB(0, 0, 0)
+errorbox.Size = UDim2.new(0, 140, 0, 28)
+errorbox.Text = "error margin: 0.00"
+errorbox.Name = "errorbox"
+errorbox.Position = UDim2.new(0, 12, 0, 70)
+Instance.new("UICorner", errorbox).CornerRadius = UDim.new(0, 6)
 
--- StarterGui.ScreenGui.Frame.less
 local less = Instance.new("TextButton", fram)
-less["TextWrapped"] = true
-less["BorderSizePixel"] = 0
-less["TextColor3"] = Color3.fromRGB(255, 255, 255)
-less["TextSize"] = 14
-less["TextScaled"] = true
-less["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
-less["FontFace"] =
-    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Bold, Enum.FontStyle.Normal)
-less["Size"] = UDim2.new(0, 31, 0, 30)
-less["BackgroundTransparency"] = 1
-less["Name"] = [[less]]
-less["BorderColor3"] = Color3.fromRGB(0, 0, 0)
-less["Text"] = [[↓]]
-less["Position"] = UDim2.new(0.47439, 0, 0.59848, 0)
+less.BorderSizePixel = 0
+less.TextColor3 = Color3.fromRGB(255, 255, 255)
+less.TextSize = 16
+less.BackgroundTransparency = 1
+less.Font = Enum.Font.GothamBold
+less.Size = UDim2.new(0, 28, 0, 28)
+less.Name = "less"
+less.Text = "−"
+less.Position = UDim2.new(0, 160, 0, 70)
 
--- StarterGui.ScreenGui.Frame.more
 local more = Instance.new("TextButton", fram)
-more["TextWrapped"] = true
-more["BorderSizePixel"] = 0
-more["TextColor3"] = Color3.fromRGB(255, 255, 255)
-more["TextSize"] = 14
-more["TextScaled"] = true
-more["BackgroundColor3"] = Color3.fromRGB(255, 255, 255)
-more["FontFace"] =
-    Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Bold, Enum.FontStyle.Normal)
-more["Size"] = UDim2.new(0, 31, 0, 30)
-more["BackgroundTransparency"] = 1
-more["Name"] = [[more]]
-more["BorderColor3"] = Color3.fromRGB(0, 0, 0)
+more.BorderSizePixel = 0
+more.TextColor3 = Color3.fromRGB(255, 255, 255)
+more.TextSize = 16
+more.BackgroundTransparency = 1
+more.Font = Enum.Font.GothamBold
+more.Size = UDim2.new(0, 28, 0, 28)
+more.Name = "more"
+more.Text = "+"
+more.Position = UDim2.new(0, 190, 0, 70)
+
+-- Seek status label
+local seekLabel = Instance.new("TextLabel", fram)
+seekLabel.BackgroundTransparency = 1
+seekLabel.Size = UDim2.new(0, 140, 0, 20)
+seekLabel.Position = UDim2.new(0, 220, 0, 70)
+seekLabel.Font = Enum.Font.Gotham
+seekLabel.TextSize = 12
+seekLabel.TextColor3 = Color3.fromRGB(180, 180, 190)
+seekLabel.Text = "Seek: 0s"
+seekLabel.TextXAlignment = Enum.TextXAlignment.Left
+seekLabel.Name = "seekLabel"
 more["Text"] = [[↑]]
 more["Position"] = UDim2.new(0.01963, 0, 0.59848, 0)
 
@@ -268,28 +290,43 @@ local function pauseSong()
 end
 
 pausebutton.MouseButton1Click:Connect(pauseSong)
-
 stopbutton.MouseButton1Click:Connect(stopPlayingSongs)
+
+-- Seek controls (skip rest time)
+local function updateSeekLabel()
+    if seekLabel then
+        seekLabel.Text = "Seek: " .. tostring(_G.SEEK_SECONDS or 0) .. "s"
+    end
+end
+
+seekFwd.MouseButton1Click:Connect(function()
+    _G.SEEK_SECONDS = (_G.SEEK_SECONDS or 0) + 5
+    updateSeekLabel()
+    playSound("6493287948", 0.08)
+    NotificationLibrary:SendNotification("Info", "Skip +5s", 1)
+end)
+
+seekBack.MouseButton1Click:Connect(function()
+    _G.SEEK_SECONDS = math.max(0, (_G.SEEK_SECONDS or 0) - 5)
+    updateSeekLabel()
+    playSound("6493287948", 0.08)
+    NotificationLibrary:SendNotification("Info", "Seek -5s (next rests)", 1)
+end)
 
 function updatebpmtext()
     bpmtext.Text = "BPM: " .. tostring(bpm)
 end
-
 updatebpmtext()
 
-upbpm.MouseButton1Click:Connect(
-    function()
-        bpm = bpm + 10
-        updatebpmtext()
-    end
-)
+upbpm.MouseButton1Click:Connect(function()
+    bpm = bpm + 10
+    updatebpmtext()
+end)
 
-downbpm.MouseButton1Click:Connect(
-    function()
-        bpm = bpm - 10
-        updatebpmtext()
-    end
-)
+downbpm.MouseButton1Click:Connect(function()
+    bpm = math.max(20, bpm - 10)
+    updatebpmtext()
+end)
 
 if not errormargin then
     errormargin = 0
@@ -654,11 +691,29 @@ end
 function rest(beats, bpm)
     if _G.STOPIT then return end
     local waitTime = (beats / bpm) * 60 -- beats to secs
+
+    -- Consume seek offset: skip as much rest as possible
+    if _G.SEEK_SECONDS and _G.SEEK_SECONDS > 0 then
+        if _G.SEEK_SECONDS >= waitTime then
+            _G.SEEK_SECONDS = _G.SEEK_SECONDS - waitTime
+            if seekLabel then seekLabel.Text = "Seek: " .. tostring(math.floor(_G.SEEK_SECONDS)) .. "s" end
+            return -- fully skipped
+        else
+            waitTime = waitTime - _G.SEEK_SECONDS
+            _G.SEEK_SECONDS = 0
+            if seekLabel then seekLabel.Text = "Seek: 0s" end
+        end
+    end
+
+    if pausing then
+        resumeEvent.Event:Wait()
+    end
+
     if errormargin == 0 then
         task.wait(waitTime)
     else
-        local randomOffset = (math.random() * 1.6 - 1) * (errormargin / 2) -- generate a random number between -errormargin / 2 and +errormargin / 2
-        wait(waitTime + randomOffset) -- add num above to the og wait
+        local randomOffset = (math.random() * 1.6 - 1) * (errormargin / 2)
+        task.wait(math.max(0, waitTime + randomOffset))
     end
 end
 
@@ -670,13 +725,12 @@ function keypress(keys, beats, bpm)
     if _G.STOPIT then return end
     if pausing then
         resumeEvent.Event:Wait()
-    else
     end
-    coroutine.wrap(
-        function()
-            pressKey(keys, beats, bpm)
-        end
-    )()
+    -- Always fire asynchronously so chords (many keypress at same time) never block each other
+    task.spawn(function()
+        if _G.STOPIT then return end
+        pressKey(keys, beats, bpm)
+    end)
 end
 
 -- KEYSEQUENCE16 FUNCTION

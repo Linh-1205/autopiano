@@ -1,5 +1,22 @@
-local NotificationLibrary =
-    loadstring(game:HttpGet("https://hellohellohell0.com/talentless-raw/notif_lib.lua"))()
+--[[
+    Add Custom Song UI
+    - Paste script + name
+    - Choose existing category or create a new one
+    - Stores category as first line comment: --CAT:categoryname
+]]
+
+local function createNotifLib()
+    local ok, lib = pcall(function()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/Linh-1205/autopiano/refs/heads/main/notif_lib.lua", true))()
+    end)
+    if ok and lib then return lib end
+    return {
+        SendNotification = function(_, title, text)
+            print("[Notif]", title, text)
+        end
+    }
+end
+local NotificationLibrary = createNotifLib()
 
 local function playSound(soundId, loudness)
     local sound = Instance.new("Sound")
@@ -9,113 +26,240 @@ local function playSound(soundId, loudness)
     sound:Play()
 end
 
-local addgui = Instance.new("ScreenGui")
-local newsongframe = Instance.new("Frame")
-local insertscript = Instance.new("TextBox")
-local newsonglabel = Instance.new("TextLabel")
-local cancelButton = Instance.new("TextButton")
-local insertsongName = Instance.new("TextBox")
-local submitSong = Instance.new("TextButton")
-local UIListLayout = Instance.new("UIListLayout")
-local uic = Instance.new("UICorner")
+-- Default categories (same as main)
+local defaultCategories = {
+    "custom", "peak", "best", "epic", "beautiful",
+    "video games", "memes", "classical", "anime/jpop",
+    "pop/hiphop", "sad", "electronic", "rock"
+}
 
+-- Load extra user categories if any
+local userCats = {}
+pcall(function()
+    if isfile and isfile("AUTOPIANO_CUSTOM_SONGS/_categories.txt") then
+        local raw = readfile("AUTOPIANO_CUSTOM_SONGS/_categories.txt")
+        for line in raw:gmatch("[^\r\n]+") do
+            local c = line:match("^%s*(.-)%s*$")
+            if c ~= "" then table.insert(userCats, c) end
+        end
+    end
+end)
+
+local allCats = {}
+local seen = {}
+for _, c in ipairs(defaultCategories) do
+    if not seen[c] then seen[c] = true; table.insert(allCats, c) end
+end
+for _, c in ipairs(userCats) do
+    if not seen[c] then seen[c] = true; table.insert(allCats, c) end
+end
+
+local addgui = Instance.new("ScreenGui")
 addgui.Name = "addgui"
 addgui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 addgui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+addgui.ResetOnSpawn = false
 
+local newsongframe = Instance.new("Frame")
 newsongframe.Name = "newsongframe"
 newsongframe.Parent = addgui
 newsongframe.AnchorPoint = Vector2.new(0.5, 0.5)
-newsongframe.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-newsongframe.BorderColor3 = Color3.fromRGB(255, 182, 193)
+newsongframe.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
 newsongframe.BorderSizePixel = 0
 newsongframe.Position = UDim2.new(0.5, 0, 0.5, 0)
-newsongframe.Size = UDim2.new(0, 254, 0, 326)
+newsongframe.Size = UDim2.new(0, 280, 0, 420)
 
-uic.CornerRadius = UDim.new(0, 4)
+local uic = Instance.new("UICorner")
+uic.CornerRadius = UDim.new(0, 12)
 uic.Parent = newsongframe
 
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(255, 140, 170)
+stroke.Thickness = 1.5
+stroke.Transparency = 0.35
+stroke.Parent = newsongframe
+
+local newsonglabel = Instance.new("TextLabel")
 newsonglabel.Name = "newsonglabel"
 newsonglabel.Parent = newsongframe
-newsonglabel.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-newsonglabel.BorderColor3 = Color3.fromRGB(255, 182, 193)
-newsonglabel.BorderSizePixel = 4
-newsonglabel.LayoutOrder = 1
-newsonglabel.Position = UDim2.new(0.0708699971, 0, 0.0552100018, 0)
-newsonglabel.Size = UDim2.new(0, 218, 0, 50)
-newsonglabel.Font = Enum.Font.SourceSansBold
+newsonglabel.BackgroundTransparency = 1
+newsonglabel.Position = UDim2.new(0, 16, 0, 12)
+newsonglabel.Size = UDim2.new(1, -50, 0, 32)
+newsonglabel.Font = Enum.Font.GothamBold
 newsonglabel.Text = "Add Custom Song"
 newsonglabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-newsonglabel.TextScaled = true
-newsonglabel.TextWrapped = true
+newsonglabel.TextSize = 20
+newsonglabel.TextXAlignment = Enum.TextXAlignment.Left
 
+local cancelButton = Instance.new("TextButton")
 cancelButton.Name = "cancelButton"
 cancelButton.Parent = newsongframe
 cancelButton.AnchorPoint = Vector2.new(1, 0)
-cancelButton.BackgroundColor3 = Color3.fromRGB(255, 182, 193)
-cancelButton.BorderColor3 = Color3.fromRGB(255, 182, 193)
-cancelButton.BorderSizePixel = 0
-cancelButton.Position = UDim2.new(1, -5, 0, 5)
-cancelButton.Size = UDim2.new(0, 30, 0, 30)
-cancelButton.Font = Enum.Font.SourceSansBold
-cancelButton.Text = "X"
+cancelButton.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+cancelButton.Position = UDim2.new(1, -10, 0, 10)
+cancelButton.Size = UDim2.new(0, 28, 0, 28)
+cancelButton.Font = Enum.Font.GothamBold
+cancelButton.Text = "✕"
 cancelButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-cancelButton.TextSize = 20
-cancelButton.ZIndex = 5
+cancelButton.TextSize = 14
+Instance.new("UICorner", cancelButton).CornerRadius = UDim.new(0, 6)
 
+local insertscript = Instance.new("TextBox")
 insertscript.Name = "insertscript"
 insertscript.Parent = newsongframe
-insertscript.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-insertscript.BorderColor3 = Color3.fromRGB(255, 182, 193)
-insertscript.BorderSizePixel = 4
-insertscript.LayoutOrder = 2
-insertscript.Position = UDim2.new(0.0708699971, 0, 0.257669985, 0)
-insertscript.Size = UDim2.new(0, 218, 0, 123)
-insertscript.Font = Enum.Font.SourceSans
+insertscript.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+insertscript.Position = UDim2.new(0, 16, 0, 52)
+insertscript.Size = UDim2.new(1, -32, 0, 120)
+insertscript.Font = Enum.Font.Code
 insertscript.PlaceholderText = "Paste your song script here..."
 insertscript.Text = ""
-insertscript.TextColor3 = Color3.fromRGB(255, 255, 255)
-insertscript.TextSize = 14.000
+insertscript.TextColor3 = Color3.fromRGB(230, 230, 235)
+insertscript.PlaceholderColor3 = Color3.fromRGB(120, 120, 130)
+insertscript.TextSize = 13
 insertscript.TextWrapped = true
 insertscript.MultiLine = true
 insertscript.ClearTextOnFocus = false
+insertscript.TextXAlignment = Enum.TextXAlignment.Left
+insertscript.TextYAlignment = Enum.TextYAlignment.Top
+Instance.new("UICorner", insertscript).CornerRadius = UDim.new(0, 8)
 
+local insertsongName = Instance.new("TextBox")
 insertsongName.Name = "insertsongName"
 insertsongName.Parent = newsongframe
-insertsongName.BackgroundColor3 = Color3.fromRGB(255, 228, 235)
-insertsongName.BorderColor3 = Color3.fromRGB(255, 182, 193)
-insertsongName.BorderSizePixel = 4
-insertsongName.LayoutOrder = 3
-insertsongName.Position = UDim2.new(0.0708699971, 0, 0.69325, 0)
-insertsongName.Size = UDim2.new(0, 218, 0, 32)
-insertsongName.Font = Enum.Font.SourceSans
+insertsongName.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+insertsongName.Position = UDim2.new(0, 16, 0, 184)
+insertsongName.Size = UDim2.new(1, -32, 0, 32)
+insertsongName.Font = Enum.Font.Gotham
 insertsongName.PlaceholderText = "Song name..."
 insertsongName.Text = ""
-insertsongName.TextColor3 = Color3.fromRGB(255, 255, 255)
-insertsongName.TextSize = 20
-insertsongName.TextWrapped = true
+insertsongName.TextColor3 = Color3.fromRGB(230, 230, 235)
+insertsongName.PlaceholderColor3 = Color3.fromRGB(120, 120, 130)
+insertsongName.TextSize = 15
+insertsongName.ClearTextOnFocus = false
+Instance.new("UICorner", insertsongName).CornerRadius = UDim.new(0, 8)
 
+-- Category label
+local catLabel = Instance.new("TextLabel")
+catLabel.Parent = newsongframe
+catLabel.BackgroundTransparency = 1
+catLabel.Position = UDim2.new(0, 16, 0, 224)
+catLabel.Size = UDim2.new(1, -32, 0, 18)
+catLabel.Font = Enum.Font.Gotham
+catLabel.Text = "Category"
+catLabel.TextColor3 = Color3.fromRGB(180, 180, 190)
+catLabel.TextSize = 13
+catLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Category dropdown (simple scroll of buttons)
+local catScroll = Instance.new("ScrollingFrame")
+catScroll.Parent = newsongframe
+catScroll.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+catScroll.Position = UDim2.new(0, 16, 0, 246)
+catScroll.Size = UDim2.new(1, -32, 0, 80)
+catScroll.ScrollBarThickness = 4
+catScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+catScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Instance.new("UICorner", catScroll).CornerRadius = UDim.new(0, 8)
+
+local catLayout = Instance.new("UIListLayout")
+catLayout.Parent = catScroll
+catLayout.Padding = UDim.new(0, 4)
+catLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local selectedCat = "custom"
+local catButtons = {}
+
+local function refreshCatButtons()
+    for _, b in ipairs(catButtons) do b:Destroy() end
+    catButtons = {}
+    for i, c in ipairs(allCats) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -8, 0, 24)
+        btn.BackgroundColor3 = (c == selectedCat) and Color3.fromRGB(255, 120, 160) or Color3.fromRGB(55, 55, 65)
+        btn.Text = c
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 13
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.Parent = catScroll
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+        btn.MouseButton1Click:Connect(function()
+            selectedCat = c
+            refreshCatButtons()
+        end)
+        table.insert(catButtons, btn)
+    end
+end
+refreshCatButtons()
+
+-- New category input
+local newCatBox = Instance.new("TextBox")
+newCatBox.Parent = newsongframe
+newCatBox.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+newCatBox.Position = UDim2.new(0, 16, 0, 334)
+newCatBox.Size = UDim2.new(1, -100, 0, 28)
+newCatBox.Font = Enum.Font.Gotham
+newCatBox.PlaceholderText = "New category name..."
+newCatBox.Text = ""
+newCatBox.TextColor3 = Color3.fromRGB(230, 230, 235)
+newCatBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 130)
+newCatBox.TextSize = 13
+newCatBox.ClearTextOnFocus = false
+Instance.new("UICorner", newCatBox).CornerRadius = UDim.new(0, 6)
+
+local addCatBtn = Instance.new("TextButton")
+addCatBtn.Parent = newsongframe
+addCatBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 100)
+addCatBtn.Position = UDim2.new(1, -76, 0, 334)
+addCatBtn.Size = UDim2.new(0, 60, 0, 28)
+addCatBtn.Font = Enum.Font.GothamBold
+addCatBtn.Text = "+ Cat"
+addCatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+addCatBtn.TextSize = 12
+Instance.new("UICorner", addCatBtn).CornerRadius = UDim.new(0, 6)
+
+addCatBtn.MouseButton1Click:Connect(function()
+    local name = newCatBox.Text:match("^%s*(.-)%s*$")
+    if name == "" then
+        NotificationLibrary:SendNotification("Error", "Enter a category name.", 2)
+        return
+    end
+    if seen[name] then
+        selectedCat = name
+        refreshCatButtons()
+        newCatBox.Text = ""
+        return
+    end
+    seen[name] = true
+    table.insert(allCats, name)
+    selectedCat = name
+    -- persist
+    pcall(function()
+        if not isfolder("AUTOPIANO_CUSTOM_SONGS") then makefolder("AUTOPIANO_CUSTOM_SONGS") end
+        local existing = ""
+        if isfile("AUTOPIANO_CUSTOM_SONGS/_categories.txt") then
+            existing = readfile("AUTOPIANO_CUSTOM_SONGS/_categories.txt")
+        end
+        writefile("AUTOPIANO_CUSTOM_SONGS/_categories.txt", existing .. name .. "\n")
+    end)
+    refreshCatButtons()
+    newCatBox.Text = ""
+    playSound("6493287948", 0.1)
+    NotificationLibrary:SendNotification("Success", "Category added: " .. name, 2)
+end)
+
+local submitSong = Instance.new("TextButton")
 submitSong.Name = "submitSong"
 submitSong.Parent = newsongframe
-submitSong.BackgroundColor3 = Color3.fromRGB(255, 182, 193)
-submitSong.BorderColor3 = Color3.fromRGB(255, 182, 193)
-submitSong.BorderSizePixel = 0
-submitSong.LayoutOrder = 4
-submitSong.Position = UDim2.new(0.0708699971, 0, 0.834360003, 0)
-submitSong.Size = UDim2.new(0, 218, 0, 41)
-submitSong.Font = Enum.Font.SourceSansBold
+submitSong.BackgroundColor3 = Color3.fromRGB(255, 120, 160)
+submitSong.Position = UDim2.new(0, 16, 0, 372)
+submitSong.Size = UDim2.new(1, -32, 0, 36)
+submitSong.Font = Enum.Font.GothamBold
 submitSong.Text = "Add Song"
 submitSong.TextColor3 = Color3.fromRGB(255, 255, 255)
-submitSong.TextSize = 30.000
+submitSong.TextSize = 16
+Instance.new("UICorner", submitSong).CornerRadius = UDim.new(0, 8)
 
-UIListLayout.Parent = newsongframe
-UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-UIListLayout.Padding = UDim.new(0, 15)
-
--- drag script
-
+-- Drag
 local UserInputService = game:GetService("UserInputService")
 local gui = newsongframe
 local dragging, dragInput, dragStart, startPos
@@ -151,12 +295,12 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 cancelButton.MouseButton1Click:Connect(function()
-    newsongframe.Visible = false
+    addgui:Destroy()
 end)
 
 submitSong.MouseButton1Click:Connect(function()
     local scriptInput = insertscript.Text
-    local songName = insertsongName.Text
+    local songName = insertsongName.Text:match("^%s*(.-)%s*$")
 
     if songName == "" or scriptInput == "" then
         playSound("6493287948", 0.1)
@@ -164,14 +308,7 @@ submitSong.MouseButton1Click:Connect(function()
         return
     end
 
-    local folderExists = false
-    for _, file in ipairs(listfiles("")) do
-        if string.match(tostring(file), "AUTOPIANO_CUSTOM_SONGS") then
-            folderExists = true
-        end
-    end
-
-    if not folderExists then
+    if not isfolder("AUTOPIANO_CUSTOM_SONGS") then
         makefolder("AUTOPIANO_CUSTOM_SONGS")
     end
 
@@ -186,13 +323,18 @@ submitSong.MouseButton1Click:Connect(function()
     end
 
     if not songexists then
-        writefile("AUTOPIANO_CUSTOM_SONGS/" .. songName .. ".txt", scriptInput)
+        -- Prepend category marker so main script can read it
+        local finalScript = "--CAT:" .. selectedCat .. "\n" .. scriptInput
+        writefile("AUTOPIANO_CUSTOM_SONGS/" .. songName .. ".txt", finalScript)
         playSound("6493287948", 0.1)
-        NotificationLibrary:SendNotification("Success", "Added song: " .. songName, 5)
+        NotificationLibrary:SendNotification("Success", "Added \"" .. songName .. "\" → " .. selectedCat, 4)
         insertscript.Text = ""
         insertsongName.Text = ""
     end
 
-    wait(0.5)
-    updateSongs()
+    task.wait(0.4)
+    if updateSongs then
+        updateSongs()
+    end
+    addgui:Destroy()
 end)
