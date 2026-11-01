@@ -1455,25 +1455,7 @@ function updateSongs()
                             end
                         end)
 
-                    -- Initialize variables outside the event handler
-                    local clickTime = 0.5
-                    local lastClick = 0
-
-                    -- Create a single event connection
-                    delsongbutton.MouseButton1Click:Connect(
-                        function()
-                            local now = tick()
-                            if now - lastClick <= clickTime then
-                                -- Double-click detected
-                                print("Double-click detected. Deleting song...")
-                                delfile(filepath) -- Delete the file
-                                songframe:Destroy()
-                                table.remove(customsongs, table.find(customsongs, songbutton))
-                                table.remove(addedCustoms, table.find(addedCustoms, filepath))
-                                updatecustomcount()
-                                playSound("6493287948", 0.1)
-                                NotificationLibrary:SendNotification("Success", "Your song has been deleted.", 5)
-                        -- Delete (double-click)
+                        -- Delete on double-click
                         local clickTime = 0.5
                         local lastClick = 0
                         delsongbutton.MouseButton1Click:Connect(function()
@@ -1481,7 +1463,10 @@ function updateSongs()
                             if now - lastClick <= clickTime then
                                 pcall(function() delfile(filepath) end)
                                 songframe:Destroy()
-                                table.remove(customsongs, table.find(customsongs, songframe) or 0)
+                                local idx = table.find(customsongs, songframe)
+                                if idx then table.remove(customsongs, idx) end
+                                local aidx = table.find(addedCustoms, filepath)
+                                if aidx then table.remove(addedCustoms, aidx) end
                                 customSongMeta[filepath] = nil
                                 updatecustomcount()
                                 playSound("6493287948", 0.1)
@@ -1494,11 +1479,11 @@ function updateSongs()
                         end)
 
                         updatecustomcount()
-                    end
-                end
-            end)
-        end
-    end
+                    end -- if txt match
+                end -- for custom files
+            end -- if isfolder
+        end) -- pcall
+    end -- for folders
 end -- end updatesongs
 
 for _, songbutton in ipairs(scroll:GetChildren()) do
