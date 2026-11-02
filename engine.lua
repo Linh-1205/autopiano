@@ -48,6 +48,10 @@ local S = {
     shiftCount = 0,
     conns = {},
     gui = nil,
+    baseBpm = 120, -- BPM của sheet lúc bắt đầu phát
+    curBpm = 120,  -- BPM đang chỉnh
+    speed = 1,     -- curBpm / baseBpm
+    typingPause = false, -- đang gõ vào ô BPM thì tạm dừng
 }
 
 local function notify(title, text, dur)
@@ -64,6 +68,18 @@ local function getBpm(b)
     if v <= 0 then v = 120 end
     return v
 end
+
+-- Đổi BPM ngay lúc đang phát: chỉ đổi tốc độ phát timeline (không cần chạy lại sheet)
+local function setBpm(v)
+    v = tonumber(v)
+    if not v or v <= 0 then return false end
+    v = math.clamp(v, 20, 400)
+    S.curBpm = v
+    S.speed = v / (S.baseBpm or v)
+    if S.showBpm then pcall(S.showBpm) end
+    return true
+end
+_G.AP_SET_BPM = setBpm
 
 ----------------------------------------------------------------------
 -- Key map: Virtual Piano (QWERTY)
@@ -216,7 +232,7 @@ local function buildPanel()
 
     local frame = newObj("Frame", {
         Name = "Panel",
-        Size = UDim2.new(0, 260, 0, 122),
+        Size = UDim2.new(0, 260, 0, 154),
         Position = UDim2.new(0.5, -130, 0, 24),
         BackgroundColor3 = BG,
         BorderSizePixel = 0,
@@ -271,6 +287,56 @@ local function buildPanel()
     button("Stop", 2, function() _G.stopPlayingSongs() end)
     button("<< 5s", 3, function() _G.SEEK_SECONDS = -5 end)
     button(">> 5s", 4, function() _G.SEEK_SECONDS = 5 end)
+
+    ----------------------------------------------------------------
+    -- BPM: [-] [ 120 ] [+] [Reset]  (gõ số rồi Enter, hoặc bấm -/+ = 5 BPM)
+    ----------------------------------------------------------------
+    newObj("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 12, 0, 118),
+        Size = UDim2.new(0, 34, 0, 28),
+        Text = "BPM",
+        Font = Enum.Font.Gotham,
+        TextSize = 12,
+        TextColor3 = Color3.fromRGB(200, 200, 215),
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, frame)
+    local function bpmButton(text, x, w, cb)
+        local b = newObj("TextButton", {
+            Position = UDim2.new(0, x, 0, 118),
+            Size = UDim2.new(0, w, 0, 28),
+            BackgroundColor3 = BTN,
+            BorderSizePixel = 0,
+            Text = text,
+            Font = Enum.Font.GothamMedium,
+            TextSize = 13,
+            TextColor3 = Color3.fromRGB(235, 235, 245),
+        }, frame)
+        newObj("UICorner", { CornerRadius = UDim.new(0, 8) }, b)
+        table.insert(S.conns, b.Activated:Connect(cb))
+    end
+    local bpmBox = newObj("TextBox", {
+        Position = UDim2.new(0, 82, 0, 118),
+        Size = UDim2.new(0, 64, 0, 28),
+        BackgroundColor3 = BTN,
+        BorderSizePixel = 0,
+        Text = tostring(math.floor((S.curBpm or 120) + 0.5)),
+        Font = Enum.Font.GothamMedium,
+        TextSize = 13,
+        TextColor3 = Color3.fromRGB(235, 235, 245),
+        ClearTextOnFocus = false,
+    }, frame)
+    newObj("UICorner", { CornerRadius = UDim.new(0, 8) }, bpmBox)
+    S.showBpm = function() bpmBox.Text = tostring(math.floor(S.curBpm + 0.5)) end
+    bpmButton("-", 48, 30, function() setBpm(S.curBpm - 5) end)
+    bpmButton("+", 150, 30, function() setBpm(S.curBpm + 5) end)
+    bpmButton("Reset", 184, 64, function() setBpm(S.baseBpm) end)
+    -- đang gõ thì tạm dừng để phím ảo không chui vào ô nhập
+    table.insert(S.conns, bpmBox.Focused:Connect(function() S.typingPause = true end))
+    table.insert(S.conns, bpmBox.FocusLost:Connect(function()
+        S.typingPause = false
+        if not setBpm(bpmBox.Text) then S.showBpm() end
+    end))
 
     -- kéo thả
     local dragging, dragStart, startPos = false, nil, nil
@@ -340,7 +406,7 @@ local function buildPanel()
         S.slideRatio = ratio
         S.setSlider(ratio)
         if S.timeLabel then
-            S.timeLabel.Text = fmtTime(ratio * S.total) .. " / " .. fmtTime(S.total)
+            S.timeLabel.Text = fmtTime(ratio * S.total / S.speed) .. " / " .. fmtTime(S.total / S.speed)
         end
     end
 
@@ -420,6 +486,9 @@ local function startPlayback()
         if e_end > total then total = e_end end
     end
     S.total = total
+    S.baseBpm = tonumber(bpm) or 120
+    S.curBpm = S.baseBpm
+    S.speed = 1
     print(string.format("[AutoPiano] Engine ready: %d events, %.1fs", n, total))
 
     if n == 0 then
@@ -447,20 +516,20 @@ local function startPlayback()
             if sk ~= 0 or st then
                 _G.SEEK_SECONDS = 0
                 _G.SEEK_TO = nil
-                S.pos = math.min(math.max(0, (st or S.pos) + sk), S.total)
+                S.pos = math.min(math.max(0, (st or S.pos) + sk * S.speed), S.total)
                 idx = 1
                 while idx <= n and ev[idx].t < S.pos do idx = idx + 1 end
                 releaseAll()
             end
 
-            if not pausing then S.pos = S.pos + dt end
+            if not (pausing or S.typingPause) then S.pos = S.pos + dt * S.speed end
 
             while idx <= n and ev[idx].t <= S.pos do
                 local e = ev[idx]
                 if e.pedal ~= nil then
                     sendKey(KC.Space, e.pedal)
                 else
-                    pressChord(e.keys, e.hold)
+                    pressChord(e.keys, e.hold and math.max(e.hold / S.speed, 0.03) or nil)
                 end
                 idx = idx + 1
             end
@@ -468,7 +537,7 @@ local function startPlayback()
             if S.timeLabel and not S.sliding and now - lastLabel > 0.1 then
                 lastLabel = now
                 pcall(function()
-                    S.timeLabel.Text = fmtTime(math.min(S.pos, S.total)) .. " / " .. fmtTime(S.total)
+                    S.timeLabel.Text = fmtTime(math.min(S.pos, S.total) / S.speed) .. " / " .. fmtTime(S.total / S.speed)
                     if S.setSlider and S.total > 0 then S.setSlider(S.pos / S.total) end
                 end)
             end

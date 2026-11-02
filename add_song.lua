@@ -1,6 +1,7 @@
 --[[ AutoPiano - add_song.lua (optional)
      Dán script sheet + đặt tên + chọn mục -> lưu vào AUTOPIANO_CUSTOM_SONGS/{name}.txt
-     Mục mặc định: custom. Chọn một mục có sẵn, hoặc gõ mục mới (nhiều mục: cách nhau bằng dấu phẩy).
+     - Mục: chọn NHIỀU mục có sẵn (bấm để bật/tắt), mặc định "custom"; có thể gõ thêm mục mới (cách nhau bằng dấu phẩy).
+     - BPM: tự đọc từ dòng "--BPM:xxx" ở đầu sheet (web MIDI -> Lua tự ghi dòng này), không cần nhập tay.
      Mục lưu trong _categories.txt (dòng "name|cat1,cat2") và header --CAT: trong file. ]]
 
 local DIR = "AUTOPIANO_CUSTOM_SONGS"
@@ -34,7 +35,7 @@ end
 local function corner(o) new("UICorner", { CornerRadius = UDim.new(0, 8) }, o) end
 local function trim(s) return (tostring(s):gsub("^%s+", ""):gsub("%s+$", "")) end
 
--- mục có sẵn: từ auto.lua, thêm "custom" (mặc định) lên đầu
+-- mục có sẵn: từ auto.lua (đã gồm mục tạo bằng nút +), "custom" luôn đứng đầu
 local categories = { "custom" }
 if _G.AP_GetCategories then
     local ok, list = pcall(_G.AP_GetCategories)
@@ -50,7 +51,7 @@ if not ok then gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui") end
 _G.__AP_ADDSONG_GUI = gui
 
 local main = new("Frame", {
-    Size = UDim2.new(0, 420, 0, 392), Position = UDim2.new(0.5, -210, 0.5, -196),
+    Size = UDim2.new(0, 420, 0, 436), Position = UDim2.new(0.5, -210, 0.5, -218),
     BackgroundColor3 = C.bg, BorderSizePixel = 0, Active = true, Draggable = true,
 }, gui)
 corner(main)
@@ -86,11 +87,11 @@ end
 
 local nameBox = box(40, 30, "Song name")
 
--- chọn mục (mặc định custom)
+-- chọn nhiều mục (bấm để bật/tắt, mặc định chỉ custom)
 new("TextLabel", {
     BackgroundTransparency = 1, Position = UDim2.new(0, 14, 0, 76), Size = UDim2.new(1, -28, 0, 16),
-    Text = "Category (default: custom)", Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = C.muted,
-    TextXAlignment = Enum.TextXAlignment.Left,
+    Text = "Categories (tap to toggle, default: custom)", Font = Enum.Font.Gotham, TextSize = 11,
+    TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left,
 }, main)
 local chipBar = new("ScrollingFrame", {
     Position = UDim2.new(0, 14, 0, 94), Size = UDim2.new(1, -28, 0, 28),
@@ -102,13 +103,13 @@ new("UIListLayout", {
     FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder,
 }, chipBar)
 
-local chosen = "custom"
+local selected = { custom = true }
 local chips = {}
 local function paintChips()
     for name, chip in pairs(chips) do
-        local active = (name == chosen)
-        chip.BackgroundColor3 = active and C.accent or C.item
-        chip.TextColor3 = active and C.accentText or C.text
+        local on = selected[name] == true
+        chip.BackgroundColor3 = on and C.accent or C.item
+        chip.TextColor3 = on and C.accentText or C.text
     end
 end
 for _, name in ipairs(categories) do
@@ -121,14 +122,48 @@ for _, name in ipairs(categories) do
     new("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, chip)
     chips[name] = chip
     chip.Activated:Connect(function()
-        chosen = name
+        selected[name] = not selected[name] or nil
         paintChips()
     end)
 end
 paintChips()
 
-local newCatBox = box(128, 30, "Or type a new category (overrides the choice above)")
-local scriptBox = box(166, 168, "Paste sheet script here (keypress / rest / finishedSong)", true)
+local newCatBox = box(128, 30, "Add new categories too (comma separated, optional)")
+local scriptBox = box(166, 160, "Paste sheet script here (keypress / rest / finishedSong)", true)
+
+-- BPM đọc từ dòng --BPM: ở đầu sheet
+local bpmLabel = new("TextLabel", {
+    BackgroundTransparency = 1, Position = UDim2.new(0, 14, 0, 330), Size = UDim2.new(1, -28, 0, 18),
+    Text = "BPM: paste a sheet to detect", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.muted,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, main)
+
+local function readBpm(script)
+    for line in tostring(script):gmatch("[^\r\n]+") do
+        local b = line:match("^%s*%-%-%s*BPM%s*:%s*(%d+)")
+        if b then return tonumber(b) end
+        if not line:match("^%s*%-%-") then break end -- header chỉ nằm ở các dòng comment đầu file
+    end
+    return nil
+end
+
+local function refreshBpmLabel()
+    local script = scriptBox.Text
+    if #script <= 10 then
+        bpmLabel.Text = "BPM: paste a sheet to detect"
+        bpmLabel.TextColor3 = C.muted
+        return
+    end
+    local b = readBpm(script)
+    if b then
+        bpmLabel.Text = "BPM: " .. b .. " (read from sheet)"
+        bpmLabel.TextColor3 = C.accent
+    else
+        bpmLabel.Text = "BPM: not found in sheet, default 120 (change it before Play)"
+        bpmLabel.TextColor3 = C.muted
+    end
+end
+scriptBox:GetPropertyChangedSignal("Text"):Connect(refreshBpmLabel)
 
 local saveBtn = new("TextButton", {
     Position = UDim2.new(0, 14, 1, -48), Size = UDim2.new(1, -28, 0, 34),
@@ -143,17 +178,17 @@ saveBtn.Activated:Connect(function()
     if name == "" then notify("Error", "Enter a song name") return end
     if #script <= 10 then notify("Error", "Paste the sheet script first") return end
 
-    -- mục: ô gõ mới (nếu có) > chip đang chọn; "custom" = mặc định, không cần ghi header
-    local cats = {}
-    local typed = trim(newCatBox.Text)
-    if typed ~= "" then
-        for raw in typed:gmatch("[^,]+") do
-            local c = trim(raw):lower()
-            if c ~= "" then cats[#cats + 1] = c end
-        end
-    elseif chosen ~= "custom" then
-        cats[1] = chosen
+    -- mục = các chip đang bật (theo thứ tự hiển thị) + mục gõ thêm
+    local cats, seen = {}, {}
+    for _, c in ipairs(categories) do
+        if selected[c] and not seen[c] then seen[c] = true; cats[#cats + 1] = c end
     end
+    for raw in trim(newCatBox.Text):gmatch("[^,]+") do
+        local c = trim(raw):lower()
+        if c ~= "" and not seen[c] then seen[c] = true; cats[#cats + 1] = c end
+    end
+    -- chỉ "custom" (hoặc không chọn gì) = mặc định, không cần ghi header
+    if #cats == 1 and cats[1] == "custom" then cats = {} end
 
     local okSave, err = pcall(function()
         if not isfolder(DIR) then makefolder(DIR) end
@@ -178,7 +213,9 @@ saveBtn.Activated:Connect(function()
     end)
 
     if okSave then
-        notify("Success", "Saved: " .. name .. " (" .. (#cats > 0 and table.concat(cats, ", ") or "custom") .. ")")
+        local b = readBpm(script)
+        notify("Success", "Saved: " .. name .. " (" .. (#cats > 0 and table.concat(cats, ", ") or "custom")
+            .. (b and (", " .. b .. " BPM") or "") .. ")")
         if _G.AP_RefreshSongs then pcall(_G.AP_RefreshSongs) end
         gui:Destroy()
     else

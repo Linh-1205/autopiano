@@ -11,6 +11,7 @@ local SHEET_HOST = "https://hellohellohell0.com/talentless-raw/SONGS/"
 local CUSTOM_DIR = "AUTOPIANO_CUSTOM_SONGS"
 local LEGACY_DIR = "TALENTLESS_CUSTOM_SONGS"
 local HIDDEN_FILE = CUSTOM_DIR .. "/_hidden.txt" -- bài có sẵn đã xoá (ẩn)
+local EXTRA_FILE = CUSTOM_DIR .. "/_extra_cats.txt" -- mục tạo bằng nút +
 
 -- Thêm bài: url = tên file sheet (không đuôi) trên host SONGS
 local SONG_LIST = {
@@ -93,6 +94,10 @@ local S = {
     shiftCount = 0,
     conns = {},
     gui = nil,
+    baseBpm = 120, -- BPM của sheet lúc bắt đầu phát
+    curBpm = 120,  -- BPM đang chỉnh
+    speed = 1,     -- curBpm / baseBpm
+    typingPause = false, -- đang gõ vào ô BPM thì tạm dừng
 }
 
 local function notify(title, text, dur)
@@ -109,6 +114,18 @@ local function getBpm(b)
     if v <= 0 then v = 120 end
     return v
 end
+
+-- Đổi BPM ngay lúc đang phát: chỉ đổi tốc độ phát timeline (không cần chạy lại sheet)
+local function setBpm(v)
+    v = tonumber(v)
+    if not v or v <= 0 then return false end
+    v = math.clamp(v, 20, 400)
+    S.curBpm = v
+    S.speed = v / (S.baseBpm or v)
+    if S.showBpm then pcall(S.showBpm) end
+    return true
+end
+_G.AP_SET_BPM = setBpm
 
 ----------------------------------------------------------------------
 -- Key map: Virtual Piano (QWERTY)
@@ -261,7 +278,7 @@ local function buildPanel()
 
     local frame = newObj("Frame", {
         Name = "Panel",
-        Size = UDim2.new(0, 260, 0, 122),
+        Size = UDim2.new(0, 260, 0, 154),
         Position = UDim2.new(0.5, -130, 0, 24),
         BackgroundColor3 = BG,
         BorderSizePixel = 0,
@@ -316,6 +333,56 @@ local function buildPanel()
     button("Stop", 2, function() _G.stopPlayingSongs() end)
     button("<< 5s", 3, function() _G.SEEK_SECONDS = -5 end)
     button(">> 5s", 4, function() _G.SEEK_SECONDS = 5 end)
+
+    ----------------------------------------------------------------
+    -- BPM: [-] [ 120 ] [+] [Reset]  (gõ số rồi Enter, hoặc bấm -/+ = 5 BPM)
+    ----------------------------------------------------------------
+    newObj("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 12, 0, 118),
+        Size = UDim2.new(0, 34, 0, 28),
+        Text = "BPM",
+        Font = Enum.Font.Gotham,
+        TextSize = 12,
+        TextColor3 = Color3.fromRGB(200, 200, 215),
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, frame)
+    local function bpmButton(text, x, w, cb)
+        local b = newObj("TextButton", {
+            Position = UDim2.new(0, x, 0, 118),
+            Size = UDim2.new(0, w, 0, 28),
+            BackgroundColor3 = BTN,
+            BorderSizePixel = 0,
+            Text = text,
+            Font = Enum.Font.GothamMedium,
+            TextSize = 13,
+            TextColor3 = Color3.fromRGB(235, 235, 245),
+        }, frame)
+        newObj("UICorner", { CornerRadius = UDim.new(0, 8) }, b)
+        table.insert(S.conns, b.Activated:Connect(cb))
+    end
+    local bpmBox = newObj("TextBox", {
+        Position = UDim2.new(0, 82, 0, 118),
+        Size = UDim2.new(0, 64, 0, 28),
+        BackgroundColor3 = BTN,
+        BorderSizePixel = 0,
+        Text = tostring(math.floor((S.curBpm or 120) + 0.5)),
+        Font = Enum.Font.GothamMedium,
+        TextSize = 13,
+        TextColor3 = Color3.fromRGB(235, 235, 245),
+        ClearTextOnFocus = false,
+    }, frame)
+    newObj("UICorner", { CornerRadius = UDim.new(0, 8) }, bpmBox)
+    S.showBpm = function() bpmBox.Text = tostring(math.floor(S.curBpm + 0.5)) end
+    bpmButton("-", 48, 30, function() setBpm(S.curBpm - 5) end)
+    bpmButton("+", 150, 30, function() setBpm(S.curBpm + 5) end)
+    bpmButton("Reset", 184, 64, function() setBpm(S.baseBpm) end)
+    -- đang gõ thì tạm dừng để phím ảo không chui vào ô nhập
+    table.insert(S.conns, bpmBox.Focused:Connect(function() S.typingPause = true end))
+    table.insert(S.conns, bpmBox.FocusLost:Connect(function()
+        S.typingPause = false
+        if not setBpm(bpmBox.Text) then S.showBpm() end
+    end))
 
     -- kéo thả
     local dragging, dragStart, startPos = false, nil, nil
@@ -385,7 +452,7 @@ local function buildPanel()
         S.slideRatio = ratio
         S.setSlider(ratio)
         if S.timeLabel then
-            S.timeLabel.Text = fmtTime(ratio * S.total) .. " / " .. fmtTime(S.total)
+            S.timeLabel.Text = fmtTime(ratio * S.total / S.speed) .. " / " .. fmtTime(S.total / S.speed)
         end
     end
 
@@ -465,6 +532,9 @@ local function startPlayback()
         if e_end > total then total = e_end end
     end
     S.total = total
+    S.baseBpm = tonumber(bpm) or 120
+    S.curBpm = S.baseBpm
+    S.speed = 1
     print(string.format("[AutoPiano] Engine ready: %d events, %.1fs", n, total))
 
     if n == 0 then
@@ -492,20 +562,20 @@ local function startPlayback()
             if sk ~= 0 or st then
                 _G.SEEK_SECONDS = 0
                 _G.SEEK_TO = nil
-                S.pos = math.min(math.max(0, (st or S.pos) + sk), S.total)
+                S.pos = math.min(math.max(0, (st or S.pos) + sk * S.speed), S.total)
                 idx = 1
                 while idx <= n and ev[idx].t < S.pos do idx = idx + 1 end
                 releaseAll()
             end
 
-            if not pausing then S.pos = S.pos + dt end
+            if not (pausing or S.typingPause) then S.pos = S.pos + dt * S.speed end
 
             while idx <= n and ev[idx].t <= S.pos do
                 local e = ev[idx]
                 if e.pedal ~= nil then
                     sendKey(KC.Space, e.pedal)
                 else
-                    pressChord(e.keys, e.hold)
+                    pressChord(e.keys, e.hold and math.max(e.hold / S.speed, 0.03) or nil)
                 end
                 idx = idx + 1
             end
@@ -513,7 +583,7 @@ local function startPlayback()
             if S.timeLabel and not S.sliding and now - lastLabel > 0.1 then
                 lastLabel = now
                 pcall(function()
-                    S.timeLabel.Text = fmtTime(math.min(S.pos, S.total)) .. " / " .. fmtTime(S.total)
+                    S.timeLabel.Text = fmtTime(math.min(S.pos, S.total) / S.speed) .. " / " .. fmtTime(S.total / S.speed)
                     if S.setSlider and S.total > 0 then S.setSlider(S.pos / S.total) end
                 end)
             end
@@ -726,6 +796,30 @@ local function saveHidden()
         for url in pairs(hidden) do lines[#lines + 1] = url end
         table.sort(lines)
         writefile(HIDDEN_FILE, table.concat(lines, "\n"))
+    end)
+end
+
+local extraCats = {} -- [name] = true: mục tạo bằng nút +
+
+local function loadExtraCats()
+    if type(isfile) == "function" and type(readfile) == "function" and isfile(EXTRA_FILE) then
+        local ok, content = pcall(readfile, EXTRA_FILE)
+        if ok and content then
+            for line in tostring(content):gmatch("[^\r\n]+") do extraCats[line:lower()] = true end
+        end
+    end
+end
+
+local function saveExtraCats()
+    if type(writefile) ~= "function" then return end -- không có FS: chỉ giữ trong phiên này
+    pcall(function()
+        if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder(CUSTOM_DIR) then
+            makefolder(CUSTOM_DIR)
+        end
+        local lines = {}
+        for name in pairs(extraCats) do lines[#lines + 1] = name end
+        table.sort(lines)
+        writefile(EXTRA_FILE, table.concat(lines, "\n"))
     end)
 end
 
@@ -1029,6 +1123,9 @@ buildCats = function()
             if not set[k] then set[k] = true; list[#list + 1] = k end
         end
     end
+    for k in pairs(extraCats) do
+        if not set[k] then set[k] = true; list[#list + 1] = k end
+    end
     table.sort(list)
     table.insert(list, 1, "All")
     local stillThere = false
@@ -1203,7 +1300,7 @@ local function buildUI()
 
     -- category chips
     catBar = new("ScrollingFrame", {
-        Position = UDim2.new(0, 12, 0, 80), Size = UDim2.new(1, -24, 0, 28),
+        Position = UDim2.new(0, 12, 0, 80), Size = UDim2.new(1, -58, 0, 28),
         BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 0,
         CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.X,
         ScrollingDirection = Enum.ScrollingDirection.X,
@@ -1212,6 +1309,51 @@ local function buildUI()
         FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6),
         SortOrder = Enum.SortOrder.LayoutOrder,
     }, catBar)
+
+    -- nút + : tạo mục mới (gõ tên rồi Enter, hoặc bấm + lần nữa)
+    local plus = new("TextButton", {
+        Position = UDim2.new(1, -40, 0, 80), Size = UDim2.new(0, 28, 0, 28),
+        BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "+",
+        Font = Enum.Font.GothamBold, TextSize = 18, TextColor3 = C.accentText,
+    }, main)
+    corner(plus, 6)
+    local catInput = new("TextBox", {
+        Position = UDim2.new(0, 12, 0, 80), Size = UDim2.new(1, -58, 0, 28),
+        BackgroundColor3 = C.panel, BorderSizePixel = 0, Text = "", Visible = false,
+        PlaceholderText = "New category name, then Enter", PlaceholderColor3 = C.muted,
+        Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = C.text,
+        ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left,
+    }, main)
+    corner(catInput, 6)
+    new("UIPadding", { PaddingLeft = UDim.new(0, 10) }, catInput)
+
+    local function closeCatInput(commit)
+        local name = (catInput.Text or ""):gsub("^%s+", ""):gsub("%s+$", ""):lower()
+        catInput.Visible = false
+        catBar.Visible = true
+        catInput.Text = ""
+        if commit and name ~= "" and name ~= "all" then
+            if not extraCats[name] then
+                extraCats[name] = true
+                saveExtraCats()
+                notify("Success", "Category added: " .. name, 3)
+            end
+            buildCats()
+            refreshList()
+        end
+    end
+    plus.Activated:Connect(function()
+        if catInput.Visible then
+            closeCatInput(true)
+        else
+            catBar.Visible = false
+            catInput.Visible = true
+            pcall(function() catInput:CaptureFocus() end)
+        end
+    end)
+    catInput.FocusLost:Connect(function(enterPressed)
+        if enterPressed and catInput.Visible then closeCatInput(true) end
+    end)
 
     -- song list
     listFrame = new("ScrollingFrame", {
@@ -1322,7 +1464,39 @@ local function buildUI()
         deleteSongs(targets)
     end)
 
-    close.Activated:Connect(function() _G.__AP_UI_DESTROY() end)
+    -- Close: thu nhỏ thành 1 nút nhỏ (kéo được), bấm vào để mở lại
+    local mini = new("TextButton", {
+        Name = "Mini", Position = main.Position, Size = UDim2.new(0, 96, 0, 32),
+        BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, Text = "AutoPiano",
+        Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C.accent,
+    }, gui)
+    corner(mini, 10)
+    new("UIStroke", { Color = C.accent, Thickness = 1, Transparency = 0.55 }, mini)
+    local miniDown, miniStart, miniPos, miniMoved = false, nil, nil, false
+    mini.InputBegan:Connect(function(i)
+        if isPointer(i) then miniDown, miniStart, miniPos, miniMoved = true, i.Position, mini.Position, false end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if miniDown and (i.UserInputType == Enum.UserInputType.MouseMovement
+            or i.UserInputType == Enum.UserInputType.Touch) then
+            local d = i.Position - miniStart
+            if math.abs(d.X) + math.abs(d.Y) > 6 then miniMoved = true end
+            mini.Position = UDim2.new(miniPos.X.Scale, miniPos.X.Offset + d.X,
+                miniPos.Y.Scale, miniPos.Y.Offset + d.Y)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i) if isPointer(i) then miniDown = false end end)
+    mini.Activated:Connect(function()
+        if miniMoved then miniMoved = false return end -- vừa kéo thả, không mở
+        main.Position = mini.Position
+        mini.Visible = false
+        main.Visible = true
+    end)
+    close.Activated:Connect(function()
+        mini.Position = main.Position
+        main.Visible = false
+        mini.Visible = true
+    end)
 end
 
 _G.__AP_UI_DESTROY = function()
@@ -1339,6 +1513,9 @@ _G.AP_GetCategories = function()
             if not set[k] then set[k] = true; list[#list + 1] = k end
         end
     end
+    for k in pairs(extraCats) do
+        if not set[k] then set[k] = true; list[#list + 1] = k end
+    end
     table.sort(list)
     table.insert(list, 1, "custom")
     return list
@@ -1348,6 +1525,7 @@ _G.AP_RefreshSongs = function()
 end
 
 loadHidden()
+loadExtraCats()
 buildUI()
 rebuildAll()
 print("[AutoPiano] UI ready - select a song then press Play")
