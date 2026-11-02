@@ -131,6 +131,32 @@ local function shiftRelease()
     if S.shiftCount == 0 then sendKey(KC.LeftShift, false) end
 end
 
+-- Sustain pedal = Space (giữ / thả). Dừng bài thì releaseAll() tự nhả pedal.
+local function sendPedal(down)
+    if _G.STOPIT then return end
+    sendKey(KC.Space, down)
+end
+
+-- Velocity: Virtual Piano đổi lực nốt bằng Alt + 1 phím trong map "58qrupdhl"
+local VELOCITY_MAP = "58qrupdhl"
+local function velocityKey(vel)
+    vel = math.clamp(tonumber(vel) or 0.5, 0, 1)
+    if vel < 0.27 then return "2" end -- rất nhẹ
+    if vel >= 0.88 then return "c" end -- rất mạnh
+    local index = math.floor((vel - 0.27) / 0.61 * (#VELOCITY_MAP - 2)) + 2
+    return VELOCITY_MAP:sub(index, index)
+end
+local function sendVelocity(vel)
+    if _G.STOPIT then return end
+    local entry = keyMap[velocityKey(vel)]
+    if not entry then return end
+    local code = entry[1]
+    sendKey(KC.LeftAlt, true)
+    sendKey(code, true)
+    sendKey(code, false)
+    sendKey(KC.LeftAlt, false)
+end
+
 local function pressDown(kc)
     if S.held[kc] then sendKey(kc, false) end -- nhấn lại cùng phím: nhả trước
     S.token = S.token + 1
@@ -152,6 +178,7 @@ local function releaseAll()
     S.shiftCount = 0
     sendKey(KC.LeftShift, false)
     sendKey(KC.LeftControl, false)
+    sendKey(KC.LeftAlt, false)
     sendKey(KC.Space, false)
 end
 
@@ -520,6 +547,14 @@ local function startPlayback()
                 idx = 1
                 while idx <= n and ev[idx].t < S.pos do idx = idx + 1 end
                 releaseAll()
+                -- khôi phục velocity / pedal đúng như trạng thái tại vị trí mới
+                local lastPedal, lastVel
+                for i = 1, idx - 1 do
+                    if ev[i].pedal ~= nil then lastPedal = ev[i].pedal end
+                    if ev[i].vel ~= nil then lastVel = ev[i].vel end
+                end
+                if lastVel ~= nil then sendVelocity(lastVel) end
+                if lastPedal then sendPedal(true) end
             end
 
             if not (pausing or S.typingPause) then S.pos = S.pos + dt * S.speed end
@@ -527,7 +562,9 @@ local function startPlayback()
             while idx <= n and ev[idx].t <= S.pos do
                 local e = ev[idx]
                 if e.pedal ~= nil then
-                    sendKey(KC.Space, e.pedal)
+                    sendPedal(e.pedal)
+                elseif e.vel ~= nil then
+                    sendVelocity(e.vel)
                 else
                     pressChord(e.keys, e.hold and math.max(e.hold / S.speed, 0.03) or nil)
                 end
@@ -600,22 +637,32 @@ function finishedSong()
 end
 
 function pedalDown()
+    if _G.STOPIT then return end
     if S.phase == "record" then
         S.events[#S.events + 1] = { t = S.cursor, pedal = true }
     else
-        sendKey(KC.Space, true)
+        sendPedal(true)
     end
 end
 
 function pedalUp()
+    if _G.STOPIT then return end
     if S.phase == "record" then
         S.events[#S.events + 1] = { t = S.cursor, pedal = false }
     else
-        sendKey(KC.Space, false)
+        sendPedal(false)
     end
 end
 
-function adjustVelocity(vel) end -- no-op
+-- vel: 0..1 (MIDI velocity / 127). Gọi trước cụm nốt cần đổi lực.
+function adjustVelocity(vel)
+    if _G.STOPIT then return end
+    if S.phase == "record" then
+        S.events[#S.events + 1] = { t = S.cursor, vel = tonumber(vel) or 0.5 }
+    else
+        sendVelocity(vel)
+    end
+end
 
 -- midi (C4 = 60) -> ký tự Virtual Piano; nil nếu ngoài C2..C7
 local WHITE_DEGREE = { [0] = 0, [2] = 1, [4] = 2, [5] = 3, [7] = 4, [9] = 5, [11] = 6 }
