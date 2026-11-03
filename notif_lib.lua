@@ -9,10 +9,10 @@ local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 
 local COLORS = {
-    success = Color3.fromRGB(120, 220, 160),
-    error = Color3.fromRGB(255, 105, 120),
-    warning = Color3.fromRGB(255, 200, 95),
-    info = Color3.fromRGB(255, 182, 208),
+    success = Color3.fromRGB(96, 190, 140),
+    error = Color3.fromRGB(214, 84, 108),
+    warning = Color3.fromRGB(232, 168, 76),
+    info = Color3.fromRGB(201, 112, 141),
 }
 
 local container
@@ -67,14 +67,21 @@ function NotificationLibrary:SendNotification(title, text, duration)
         local card = Instance.new("Frame")
         card.LayoutOrder = counter
         card.Size = UDim2.new(0, 260, 0, 62)
-        card.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+        card.BackgroundColor3 = Color3.fromRGB(255, 250, 251)
         card.BackgroundTransparency = 1
         card.BorderSizePixel = 0
         card.Parent = parent
 
         local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 8)
+        corner.CornerRadius = UDim.new(0, 12)
         corner.Parent = card
+
+        -- viền kính trắng
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(255, 255, 255)
+        stroke.Thickness = 1
+        stroke.Transparency = 1
+        stroke.Parent = card
 
         local strip = Instance.new("Frame")
         strip.Size = UDim2.new(0, 4, 1, -16)
@@ -91,9 +98,9 @@ function NotificationLibrary:SendNotification(title, text, duration)
         t.BackgroundTransparency = 1
         t.Position = UDim2.new(0, 22, 0, 8)
         t.Size = UDim2.new(1, -30, 0, 18)
-        t.Font = Enum.Font.GothamBold
-        t.TextSize = 14
-        t.TextColor3 = color
+        t.Font = Enum.Font.Garamond
+        t.TextSize = 20
+        t.TextColor3 = Color3.fromRGB(67, 48, 58)
         t.TextTransparency = 1
         t.TextXAlignment = Enum.TextXAlignment.Left
         t.Text = title
@@ -105,7 +112,7 @@ function NotificationLibrary:SendNotification(title, text, duration)
         m.Size = UDim2.new(1, -30, 1, -34)
         m.Font = Enum.Font.Gotham
         m.TextSize = 13
-        m.TextColor3 = Color3.fromRGB(215, 215, 228)
+        m.TextColor3 = Color3.fromRGB(112, 90, 101)
         m.TextTransparency = 1
         m.TextWrapped = true
         m.TextXAlignment = Enum.TextXAlignment.Left
@@ -119,9 +126,10 @@ function NotificationLibrary:SendNotification(title, text, duration)
             TweenService:Create(strip, info, { BackgroundTransparency = bg }):Play()
             TweenService:Create(t, info, { TextTransparency = tt }):Play()
             TweenService:Create(m, info, { TextTransparency = tt }):Play()
+            TweenService:Create(stroke, info, { Transparency = (bg >= 1) and 1 or 0.3 }):Play()
         end
 
-        fade(0.05, 0)
+        fade(0.12, 0)
         task.delay(duration, function()
             fade(1, 1)
             task.wait(0.3)

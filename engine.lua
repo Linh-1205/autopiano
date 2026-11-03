@@ -220,9 +220,14 @@ end
 ----------------------------------------------------------------------
 -- Control panel
 ----------------------------------------------------------------------
-local ACCENT = Color3.fromRGB(255, 182, 208)
-local BG = Color3.fromRGB(20, 20, 28)
-local BTN = Color3.fromRGB(38, 38, 52)
+-- Theme hồng + kính, giống giao diện chính (auto.lua)
+local ACCENT = Color3.fromRGB(201, 112, 141) -- rose
+local BG = Color3.fromRGB(255, 250, 251)
+local BTN = Color3.fromRGB(255, 255, 255)
+local INK = Color3.fromRGB(67, 48, 58)
+local INK_SOFT = Color3.fromRGB(112, 90, 101)
+local PINK100 = Color3.fromRGB(249, 221, 229)
+local PINK300 = Color3.fromRGB(236, 169, 189)
 
 local function destroyPanel()
     for _, c in ipairs(S.conns) do pcall(function() c:Disconnect() end) end
@@ -246,6 +251,26 @@ local function newObj(class, props, parent)
     return o
 end
 
+-- viền kính: sáng ở góc trên-trái, mờ dần ở giữa, hồng nhạt ở góc dưới-phải
+local function glowStroke(o, thickness)
+    local st = newObj("UIStroke", {
+        Color = Color3.fromRGB(255, 255, 255), Thickness = thickness or 1, Transparency = 0.2,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, o)
+    newObj("UIGradient", {
+        Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), PINK300),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.45, 0.65), NumberSequenceKeypoint.new(1, 0.2),
+        }),
+        Rotation = 45,
+    }, st)
+end
+
+local function glassControl(o)
+    o.BackgroundTransparency = 0.5
+    glowStroke(o, 1)
+end
+
 local function buildPanel()
     local gui = Instance.new("ScreenGui")
     gui.Name = "APControls"
@@ -261,21 +286,36 @@ local function buildPanel()
         Name = "Panel",
         Size = UDim2.new(0, 260, 0, 154),
         Position = UDim2.new(0.5, -130, 0, 24),
-        BackgroundColor3 = BG,
+        BackgroundColor3 = PINK100,
         BorderSizePixel = 0,
         Active = true,
     }, gui)
-    newObj("UICorner", { CornerRadius = UDim.new(0, 10) }, frame)
-    newObj("UIStroke", { Color = ACCENT, Thickness = 1, Transparency = 0.5 }, frame)
+    newObj("UICorner", { CornerRadius = UDim.new(0, 16) }, frame)
+    newObj("UIGradient", { Color = ColorSequence.new(PINK100, PINK300), Rotation = 135 }, frame)
+    glowStroke(frame, 1.5)
+    -- ảnh nền (nếu auto.lua đã tải xong) + lớp sương để chữ rõ
+    if _G.AP_WALLPAPER then
+        local wall = newObj("ImageLabel", {
+            Name = "Wallpaper", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1,
+            Image = _G.AP_WALLPAPER, ScaleType = Enum.ScaleType.Crop,
+        }, frame)
+        newObj("UICorner", { CornerRadius = UDim.new(0, 16) }, wall)
+    end
+    local veil = newObj("Frame", {
+        Name = "Veil", Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = BG,
+        BackgroundTransparency = 0.35, BorderSizePixel = 0,
+    }, frame)
+    newObj("UICorner", { CornerRadius = UDim.new(0, 16) }, veil)
 
     newObj("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.new(0, 12, 0, 8),
         Size = UDim2.new(0.5, 0, 0, 22),
-        Text = "AutoPiano",
-        Font = Enum.Font.GothamBold,
-        TextSize = 15,
-        TextColor3 = ACCENT,
+        Text = 'Auto<font color="rgb(201,112,141)"><i>Piano</i></font>',
+        RichText = true,
+        Font = Enum.Font.Garamond,
+        TextSize = 23,
+        TextColor3 = INK,
         TextXAlignment = Enum.TextXAlignment.Left,
     }, frame)
     S.timeLabel = newObj("TextLabel", {
@@ -285,7 +325,7 @@ local function buildPanel()
         Text = "0:00 / " .. fmtTime(S.total),
         Font = Enum.Font.Gotham,
         TextSize = 13,
-        TextColor3 = Color3.fromRGB(200, 200, 215),
+        TextColor3 = INK_SOFT,
         TextXAlignment = Enum.TextXAlignment.Right,
     }, frame)
 
@@ -298,10 +338,11 @@ local function buildPanel()
             Text = text,
             Font = Enum.Font.GothamMedium,
             TextSize = 12,
-            TextColor3 = Color3.fromRGB(235, 235, 245),
+            TextColor3 = INK,
             AutoButtonColor = true,
         }, frame)
-        newObj("UICorner", { CornerRadius = UDim.new(0, 8) }, b)
+        newObj("UICorner", { CornerRadius = UDim.new(0, 10) }, b)
+        glassControl(b)
         table.insert(S.conns, b.Activated:Connect(cb))
         return b
     end
@@ -325,7 +366,7 @@ local function buildPanel()
         Text = "BPM",
         Font = Enum.Font.Gotham,
         TextSize = 12,
-        TextColor3 = Color3.fromRGB(200, 200, 215),
+        TextColor3 = INK_SOFT,
         TextXAlignment = Enum.TextXAlignment.Left,
     }, frame)
     local function bpmButton(text, x, w, cb)
@@ -337,9 +378,10 @@ local function buildPanel()
             Text = text,
             Font = Enum.Font.GothamMedium,
             TextSize = 13,
-            TextColor3 = Color3.fromRGB(235, 235, 245),
+            TextColor3 = INK,
         }, frame)
-        newObj("UICorner", { CornerRadius = UDim.new(0, 8) }, b)
+        newObj("UICorner", { CornerRadius = UDim.new(0, 10) }, b)
+        glassControl(b)
         table.insert(S.conns, b.Activated:Connect(cb))
     end
     local bpmBox = newObj("TextBox", {
@@ -350,10 +392,11 @@ local function buildPanel()
         Text = tostring(math.floor((S.curBpm or 120) + 0.5)),
         Font = Enum.Font.GothamMedium,
         TextSize = 13,
-        TextColor3 = Color3.fromRGB(235, 235, 245),
+        TextColor3 = INK,
         ClearTextOnFocus = false,
     }, frame)
-    newObj("UICorner", { CornerRadius = UDim.new(0, 8) }, bpmBox)
+    newObj("UICorner", { CornerRadius = UDim.new(0, 10) }, bpmBox)
+    glassControl(bpmBox)
     S.showBpm = function() bpmBox.Text = tostring(math.floor(S.curBpm + 0.5)) end
     bpmButton("-", 48, 30, function() setBpm(S.curBpm - 5) end)
     bpmButton("+", 150, 30, function() setBpm(S.curBpm + 5) end)
@@ -400,7 +443,8 @@ local function buildPanel()
     local track = newObj("Frame", {
         Position = UDim2.new(0, 0, 0.5, -3),
         Size = UDim2.new(1, 0, 0, 6),
-        BackgroundColor3 = BTN,
+        BackgroundColor3 = PINK300,
+        BackgroundTransparency = 0.45,
         BorderSizePixel = 0,
     }, hit)
     newObj("UICorner", { CornerRadius = UDim.new(0, 3) }, track)
@@ -417,6 +461,7 @@ local function buildPanel()
         BorderSizePixel = 0,
     }, track)
     newObj("UICorner", { CornerRadius = UDim.new(1, 0) }, knob)
+    newObj("UIStroke", { Color = Color3.fromRGB(255, 255, 255), Thickness = 2 }, knob)
 
     S.setSlider = function(ratio)
         ratio = math.clamp(ratio, 0, 1)

@@ -12,6 +12,12 @@ local CUSTOM_DIR = "AUTOPIANO_CUSTOM_SONGS"
 local LEGACY_DIR = "TALENTLESS_CUSTOM_SONGS"
 local HIDDEN_FILE = CUSTOM_DIR .. "/_hidden.txt" -- bài có sẵn đã xoá (ẩn)
 local EXTRA_FILE = CUSTOM_DIR .. "/_extra_cats.txt" -- mục tạo bằng nút +
+local ASSET_DIR = "AUTOPIANO_ASSETS" -- ảnh nền được tải 1 lần rồi lưu ở đây
+-- Thử lần lượt: bản 1600x900 nhẹ (upload wallpaper.jpg cạnh auto.lua) -> ảnh gốc 4K
+local WALLPAPER_URLS = {
+    REPO_BASE .. "wallpaper.jpg",
+    "https://raw.githubusercontent.com/Linh-1205/autopiano/9bce86fc18d8f8e6a8680981d82fb9a986d48733/Wallpaper_Alchemy_-_Cyrene_Honkai_Star_Rail_4K_Wallpaper.jpg",
+}
 
 -- Thêm bài: url = tên file sheet (không đuôi) trên host SONGS
 local SONG_LIST = {
@@ -266,9 +272,14 @@ end
 ----------------------------------------------------------------------
 -- Control panel
 ----------------------------------------------------------------------
-local ACCENT = Color3.fromRGB(255, 182, 208)
-local BG = Color3.fromRGB(20, 20, 28)
-local BTN = Color3.fromRGB(38, 38, 52)
+-- Theme hồng + kính, giống giao diện chính (auto.lua)
+local ACCENT = Color3.fromRGB(201, 112, 141) -- rose
+local BG = Color3.fromRGB(255, 250, 251)
+local BTN = Color3.fromRGB(255, 255, 255)
+local INK = Color3.fromRGB(67, 48, 58)
+local INK_SOFT = Color3.fromRGB(112, 90, 101)
+local PINK100 = Color3.fromRGB(249, 221, 229)
+local PINK300 = Color3.fromRGB(236, 169, 189)
 
 local function destroyPanel()
     for _, c in ipairs(S.conns) do pcall(function() c:Disconnect() end) end
@@ -292,6 +303,26 @@ local function newObj(class, props, parent)
     return o
 end
 
+-- viền kính: sáng ở góc trên-trái, mờ dần ở giữa, hồng nhạt ở góc dưới-phải
+local function glowStroke(o, thickness)
+    local st = newObj("UIStroke", {
+        Color = Color3.fromRGB(255, 255, 255), Thickness = thickness or 1, Transparency = 0.2,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, o)
+    newObj("UIGradient", {
+        Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), PINK300),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.45, 0.65), NumberSequenceKeypoint.new(1, 0.2),
+        }),
+        Rotation = 45,
+    }, st)
+end
+
+local function glassControl(o)
+    o.BackgroundTransparency = 0.5
+    glowStroke(o, 1)
+end
+
 local function buildPanel()
     local gui = Instance.new("ScreenGui")
     gui.Name = "APControls"
@@ -307,21 +338,36 @@ local function buildPanel()
         Name = "Panel",
         Size = UDim2.new(0, 260, 0, 154),
         Position = UDim2.new(0.5, -130, 0, 24),
-        BackgroundColor3 = BG,
+        BackgroundColor3 = PINK100,
         BorderSizePixel = 0,
         Active = true,
     }, gui)
-    newObj("UICorner", { CornerRadius = UDim.new(0, 10) }, frame)
-    newObj("UIStroke", { Color = ACCENT, Thickness = 1, Transparency = 0.5 }, frame)
+    newObj("UICorner", { CornerRadius = UDim.new(0, 16) }, frame)
+    newObj("UIGradient", { Color = ColorSequence.new(PINK100, PINK300), Rotation = 135 }, frame)
+    glowStroke(frame, 1.5)
+    -- ảnh nền (nếu auto.lua đã tải xong) + lớp sương để chữ rõ
+    if _G.AP_WALLPAPER then
+        local wall = newObj("ImageLabel", {
+            Name = "Wallpaper", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1,
+            Image = _G.AP_WALLPAPER, ScaleType = Enum.ScaleType.Crop,
+        }, frame)
+        newObj("UICorner", { CornerRadius = UDim.new(0, 16) }, wall)
+    end
+    local veil = newObj("Frame", {
+        Name = "Veil", Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = BG,
+        BackgroundTransparency = 0.35, BorderSizePixel = 0,
+    }, frame)
+    newObj("UICorner", { CornerRadius = UDim.new(0, 16) }, veil)
 
     newObj("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.new(0, 12, 0, 8),
         Size = UDim2.new(0.5, 0, 0, 22),
-        Text = "AutoPiano",
-        Font = Enum.Font.GothamBold,
-        TextSize = 15,
-        TextColor3 = ACCENT,
+        Text = 'Auto<font color="rgb(201,112,141)"><i>Piano</i></font>',
+        RichText = true,
+        Font = Enum.Font.Garamond,
+        TextSize = 23,
+        TextColor3 = INK,
         TextXAlignment = Enum.TextXAlignment.Left,
     }, frame)
     S.timeLabel = newObj("TextLabel", {
@@ -331,7 +377,7 @@ local function buildPanel()
         Text = "0:00 / " .. fmtTime(S.total),
         Font = Enum.Font.Gotham,
         TextSize = 13,
-        TextColor3 = Color3.fromRGB(200, 200, 215),
+        TextColor3 = INK_SOFT,
         TextXAlignment = Enum.TextXAlignment.Right,
     }, frame)
 
@@ -344,10 +390,11 @@ local function buildPanel()
             Text = text,
             Font = Enum.Font.GothamMedium,
             TextSize = 12,
-            TextColor3 = Color3.fromRGB(235, 235, 245),
+            TextColor3 = INK,
             AutoButtonColor = true,
         }, frame)
-        newObj("UICorner", { CornerRadius = UDim.new(0, 8) }, b)
+        newObj("UICorner", { CornerRadius = UDim.new(0, 10) }, b)
+        glassControl(b)
         table.insert(S.conns, b.Activated:Connect(cb))
         return b
     end
@@ -371,7 +418,7 @@ local function buildPanel()
         Text = "BPM",
         Font = Enum.Font.Gotham,
         TextSize = 12,
-        TextColor3 = Color3.fromRGB(200, 200, 215),
+        TextColor3 = INK_SOFT,
         TextXAlignment = Enum.TextXAlignment.Left,
     }, frame)
     local function bpmButton(text, x, w, cb)
@@ -383,9 +430,10 @@ local function buildPanel()
             Text = text,
             Font = Enum.Font.GothamMedium,
             TextSize = 13,
-            TextColor3 = Color3.fromRGB(235, 235, 245),
+            TextColor3 = INK,
         }, frame)
-        newObj("UICorner", { CornerRadius = UDim.new(0, 8) }, b)
+        newObj("UICorner", { CornerRadius = UDim.new(0, 10) }, b)
+        glassControl(b)
         table.insert(S.conns, b.Activated:Connect(cb))
     end
     local bpmBox = newObj("TextBox", {
@@ -396,10 +444,11 @@ local function buildPanel()
         Text = tostring(math.floor((S.curBpm or 120) + 0.5)),
         Font = Enum.Font.GothamMedium,
         TextSize = 13,
-        TextColor3 = Color3.fromRGB(235, 235, 245),
+        TextColor3 = INK,
         ClearTextOnFocus = false,
     }, frame)
-    newObj("UICorner", { CornerRadius = UDim.new(0, 8) }, bpmBox)
+    newObj("UICorner", { CornerRadius = UDim.new(0, 10) }, bpmBox)
+    glassControl(bpmBox)
     S.showBpm = function() bpmBox.Text = tostring(math.floor(S.curBpm + 0.5)) end
     bpmButton("-", 48, 30, function() setBpm(S.curBpm - 5) end)
     bpmButton("+", 150, 30, function() setBpm(S.curBpm + 5) end)
@@ -446,7 +495,8 @@ local function buildPanel()
     local track = newObj("Frame", {
         Position = UDim2.new(0, 0, 0.5, -3),
         Size = UDim2.new(1, 0, 0, 6),
-        BackgroundColor3 = BTN,
+        BackgroundColor3 = PINK300,
+        BackgroundTransparency = 0.45,
         BorderSizePixel = 0,
     }, hit)
     newObj("UICorner", { CornerRadius = UDim.new(0, 3) }, track)
@@ -463,6 +513,7 @@ local function buildPanel()
         BorderSizePixel = 0,
     }, track)
     newObj("UICorner", { CornerRadius = UDim.new(1, 0) }, knob)
+    newObj("UIStroke", { Color = Color3.fromRGB(255, 255, 255), Thickness = 2 }, knob)
 
     S.setSlider = function(ratio)
         ratio = math.clamp(ratio, 0, 1)
@@ -766,16 +817,25 @@ function stopPlayingSongsGlobal() stopPlayingSongs() end
 local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
+-- Bảng màu giống index.html (ivory / blush / pink / rose / ink)
 local C = {
-    bg = Color3.fromRGB(18, 18, 24),
-    panel = Color3.fromRGB(28, 28, 38),
-    item = Color3.fromRGB(36, 36, 50),
-    text = Color3.fromRGB(235, 235, 245),
-    muted = Color3.fromRGB(150, 150, 172),
-    accent = Color3.fromRGB(255, 182, 208),
-    accentText = Color3.fromRGB(40, 24, 32),
+    white = Color3.fromRGB(255, 255, 255),
+    ivory = Color3.fromRGB(255, 250, 251),
+    blush = Color3.fromRGB(253, 238, 242),
+    pink100 = Color3.fromRGB(249, 221, 229),
+    pink200 = Color3.fromRGB(244, 198, 211),
+    pink300 = Color3.fromRGB(236, 169, 189),
+    rose = Color3.fromRGB(201, 112, 141),
+    roseDeep = Color3.fromRGB(168, 80, 110),
+    ink = Color3.fromRGB(67, 48, 58),
+    inkSoft = Color3.fromRGB(112, 90, 101), -- đậm hơn index một chút để đọc được trên kính
 }
+local FONT_SERIF = Enum.Font.Garamond
+local FONT = Enum.Font.Gotham
+local FONT_MED = Enum.Font.GothamMedium
+local FONT_BOLD = Enum.Font.GothamBold
 
 local function new(class, props, parent)
     local o = Instance.new(class)
@@ -784,6 +844,105 @@ local function new(class, props, parent)
     return o
 end
 local function corner(o, r) new("UICorner", { CornerRadius = UDim.new(0, r or 8) }, o) end
+
+----------------------------------------------------------------------
+-- Hiệu ứng kính (liquid glass)
+--   * nền trắng hồng trong suốt để thấy ảnh nền phía sau
+--   * viền sáng chéo: góc trên-trái sáng, mờ dần ở giữa, hồng nhạt ở góc dưới-phải
+--   * UIGradient KHÔNG gắn lên TextButton/TextBox (sẽ nhuộm màu chữ), chỉ gắn lên viền và Frame
+----------------------------------------------------------------------
+local function glowStroke(o, thickness)
+    local st = new("UIStroke", {
+        Color = C.white, Thickness = thickness or 1, Transparency = 0.2,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, o)
+    new("UIGradient", {
+        Color = ColorSequence.new(C.white, C.pink300),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0),
+            NumberSequenceKeypoint.new(0.45, 0.65),
+            NumberSequenceKeypoint.new(1, 0.2),
+        }),
+        Rotation = 45,
+    }, st)
+    return st
+end
+
+-- Frame / ScrollingFrame dạng kính
+local function glassFrame(o, alpha, radius)
+    o.BackgroundColor3 = C.white
+    o.BackgroundTransparency = alpha or 0.4
+    o.BorderSizePixel = 0
+    corner(o, radius or 14)
+    new("UIGradient", { Color = ColorSequence.new(C.white, C.pink100), Rotation = 90 }, o)
+    glowStroke(o, 1)
+    return o
+end
+
+local function hoverFade(b, base, over)
+    b.MouseEnter:Connect(function()
+        TweenService:Create(b, TweenInfo.new(0.15), { BackgroundTransparency = over }):Play()
+    end)
+    b.MouseLeave:Connect(function()
+        TweenService:Create(b, TweenInfo.new(0.2), { BackgroundTransparency = base }):Play()
+    end)
+end
+
+-- Nút / ô nhập: "soft" = kính trắng chữ tối, "rose" = hồng đậm chữ trắng (nút chính)
+local function control(o, kind, radius)
+    corner(o, radius or 10)
+    o.BorderSizePixel = 0
+    if kind == "rose" then
+        o.BackgroundColor3 = C.rose
+        o.BackgroundTransparency = 0.08
+        o.TextColor3 = C.white
+    else
+        o.BackgroundColor3 = C.white
+        o.BackgroundTransparency = 0.5
+        o.TextColor3 = C.ink
+    end
+    glowStroke(o, 1)
+    if o:IsA("TextButton") then
+        o.AutoButtonColor = false
+        hoverFade(o, o.BackgroundTransparency, math.max(o.BackgroundTransparency - 0.22, 0))
+    end
+    return o
+end
+
+-- Ảnh nền: tải 1 lần, lưu file, nạp bằng getcustomasset (cần executor hỗ trợ; không có thì dùng nền gradient hồng)
+local function loadWallpaper(apply)
+    if type(writefile) ~= "function" or type(getcustomasset) ~= "function" then return end
+    task.spawn(function()
+        local path = ASSET_DIR .. "/wallpaper.jpg"
+        local have = type(isfile) == "function" and isfile(path)
+        if not have then
+            pcall(function()
+                if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder(ASSET_DIR) then
+                    makefolder(ASSET_DIR)
+                end
+            end)
+            local data
+            for _, url in ipairs(WALLPAPER_URLS) do
+                local ok, res = pcall(function() return game:HttpGet(url, true) end)
+                -- JPEG bắt đầu bằng FF D8 FF; trang lỗi 404 của GitHub là chữ nên bị loại
+                if ok and type(res) == "string" and #res > 2000 and res:sub(1, 3) == "\255\216\255" then
+                    data = res
+                    break
+                end
+            end
+            if not data then
+                warn("[AutoPiano] Wallpaper not found, using the plain pink background")
+                return
+            end
+            if not pcall(writefile, path, data) then return end
+        end
+        local ok, id = pcall(getcustomasset, path)
+        if ok and id then
+            _G.AP_WALLPAPER = id
+            apply(id)
+        end
+    end)
+end
 
 local function notify(kind, msg, dur) Notif:SendNotification(kind, msg, dur or 3) end
 
@@ -1052,11 +1211,17 @@ end)
 ----------------------------------------------------------------------
 local function paintButton(s)
     if not s.button then return end
-    s.button.BackgroundColor3 = s.var and C.accent or C.item
+    if s.var then
+        s.button.BackgroundColor3 = C.rose
+        s.button.BackgroundTransparency = 0.1
+    else
+        s.button.BackgroundColor3 = C.white
+        s.button.BackgroundTransparency = 0.55
+    end
     local nm = s.button:FindFirstChild("Name")
-    if nm then nm.TextColor3 = s.var and C.accentText or C.text end
+    if nm then nm.TextColor3 = s.var and C.white or C.ink end
     local tg = s.button:FindFirstChild("Tags")
-    if tg then tg.TextColor3 = s.var and C.accentText or C.muted end
+    if tg then tg.TextColor3 = s.var and C.pink100 or C.inkSoft end
 end
 
 disable = function()
@@ -1099,32 +1264,43 @@ end
 
 local function paintCheck(s)
     if not s.check then return end
-    s.check.BackgroundColor3 = s.checked and C.accentText or C.bg
-    s.check.Text = s.checked and "x" or ""
+    if s.checked then
+        s.check.BackgroundColor3 = C.rose
+        s.check.BackgroundTransparency = 0.05
+        s.check.Text = "x"
+    else
+        s.check.BackgroundColor3 = C.white
+        s.check.BackgroundTransparency = 0.35
+        s.check.Text = ""
+    end
 end
 
 local function makeSongButton(s)
     local b = new("TextButton", {
-        Size = UDim2.new(1, -6, 0, 32),
-        BackgroundColor3 = C.item,
+        Size = UDim2.new(1, -6, 0, 34),
+        BackgroundColor3 = C.white,
+        BackgroundTransparency = 0.55,
         BorderSizePixel = 0,
         Text = "",
-        AutoButtonColor = true,
+        AutoButtonColor = false,
     }, listFrame)
-    corner(b, 6)
+    corner(b, 10)
+    new("UIStroke", { Color = C.white, Thickness = 1, Transparency = 0.65 }, b)
     local box = new("TextButton", {
         Name = "Check",
-        Position = UDim2.new(0, 8, 0.5, -9),
+        Position = UDim2.new(0, 9, 0.5, -9),
         Size = UDim2.new(0, 18, 0, 18),
-        BackgroundColor3 = C.bg,
+        BackgroundColor3 = C.white,
+        BackgroundTransparency = 0.35,
         BorderSizePixel = 0,
         Text = "",
-        Font = Enum.Font.GothamBold,
-        TextSize = 13,
-        TextColor3 = C.accent,
+        Font = FONT_BOLD,
+        TextSize = 12,
+        TextColor3 = C.white,
         AutoButtonColor = false,
     }, b)
-    corner(box, 4)
+    corner(box, 5)
+    new("UIStroke", { Color = C.pink300, Thickness = 1, Transparency = 0.2 }, box)
     s.check = box
     s.checked = false
     box.Activated:Connect(function()
@@ -1134,12 +1310,12 @@ local function makeSongButton(s)
     new("TextLabel", {
         Name = "Name",
         BackgroundTransparency = 1,
-        Position = UDim2.new(0, 34, 0, 0),
-        Size = UDim2.new(0.6, -34, 1, 0),
+        Position = UDim2.new(0, 38, 0, 0),
+        Size = UDim2.new(0.6, -38, 1, 0),
         Text = s.name,
-        Font = Enum.Font.GothamMedium,
-        TextSize = 13,
-        TextColor3 = C.text,
+        Font = FONT_SERIF,
+        TextSize = 19,
+        TextColor3 = C.ink,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, b)
@@ -1147,11 +1323,11 @@ local function makeSongButton(s)
         Name = "Tags",
         BackgroundTransparency = 1,
         Position = UDim2.new(0.6, 0, 0, 0),
-        Size = UDim2.new(0.4, -10, 1, 0),
+        Size = UDim2.new(0.4, -12, 1, 0),
         Text = table.concat(s.cat, ", "),
-        Font = Enum.Font.Gotham,
+        Font = FONT,
         TextSize = 11,
-        TextColor3 = C.muted,
+        TextColor3 = C.inkSoft,
         TextXAlignment = Enum.TextXAlignment.Right,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, b)
@@ -1185,14 +1361,11 @@ buildCats = function()
         local chip = new("TextButton", {
             Size = UDim2.new(0, 0, 1, 0),
             AutomaticSize = Enum.AutomaticSize.X,
-            BackgroundColor3 = active and C.accent or C.item,
-            BorderSizePixel = 0,
             Text = name,
-            Font = Enum.Font.GothamMedium,
+            Font = FONT_MED,
             TextSize = 12,
-            TextColor3 = active and C.accentText or C.text,
         }, catBar)
-        corner(chip, 6)
+        control(chip, active and "rose" or "soft", 10)
         new("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, chip)
         chip.Activated:Connect(function()
             selectedCat = name
@@ -1265,32 +1438,57 @@ local function buildUI()
     local ok = pcall(function() gui.Parent = CoreGui end)
     if not ok then gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui") end
 
+    -- Cửa sổ: nền gradient hồng (dự phòng) -> ảnh nền -> lớp sương trắng -> các tấm kính
     local main = new("Frame", {
         Name = "Main",
-        Size = UDim2.new(0, 480, 0, 420),
-        Position = UDim2.new(0.5, -240, 0.5, -210),
-        BackgroundColor3 = C.bg,
+        Size = UDim2.new(0, 500, 0, 454),
+        Position = UDim2.new(0.5, -250, 0.5, -227),
+        BackgroundColor3 = C.pink200,
         BorderSizePixel = 0,
         Active = true,
     }, gui)
-    corner(main, 12)
-    new("UIStroke", { Color = C.accent, Thickness = 1, Transparency = 0.55 }, main)
+    corner(main, 18)
+    new("UIGradient", { Color = ColorSequence.new(C.pink100, C.pink300), Rotation = 135 }, main)
+    glowStroke(main, 1.5)
 
-    -- title bar (kéo thả)
-    local title = new("Frame", {
-        Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1,
+    local wall = new("ImageLabel", {
+        Name = "Wallpaper", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1,
+        Image = "", ImageTransparency = 1, ScaleType = Enum.ScaleType.Crop,
     }, main)
+    corner(wall, 18)
+
+    -- lớp sương nhẹ để chữ không bị chìm vào ảnh
+    local veil = new("Frame", {
+        Name = "Veil", Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.white,
+        BackgroundTransparency = 0.5, BorderSizePixel = 0,
+    }, main)
+    corner(veil, 18)
+    new("UIGradient", { Color = ColorSequence.new(C.white, C.pink100), Rotation = 120 }, veil)
+
+    -- vệt sáng phía trên như mặt kính phản chiếu
+    local sheen = new("Frame", {
+        Name = "Sheen", Size = UDim2.new(1, 0, 0, 90), BackgroundColor3 = C.white,
+        BackgroundTransparency = 0, BorderSizePixel = 0,
+    }, main)
+    corner(sheen, 18)
+    new("UIGradient", {
+        Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.7), NumberSequenceKeypoint.new(1, 1) }),
+        Rotation = 90,
+    }, sheen)
+
+    -- thanh tiêu đề (kéo thả)
+    local title = new("Frame", { Name = "Title", Position = UDim2.new(0, 12, 0, 10), Size = UDim2.new(1, -24, 0, 42) }, main)
+    glassFrame(title, 0.38, 14)
     new("TextLabel", {
-        BackgroundTransparency = 1, Position = UDim2.new(0, 14, 0, 0), Size = UDim2.new(0.6, 0, 1, 0),
-        Text = "AutoPiano", Font = Enum.Font.GothamBold, TextSize = 17, TextColor3 = C.accent,
-        TextXAlignment = Enum.TextXAlignment.Left,
+        BackgroundTransparency = 1, Position = UDim2.new(0, 16, 0, 0), Size = UDim2.new(0.6, 0, 1, 0),
+        Text = 'Auto<font color="rgb(201,112,141)"><i>Piano</i></font>', RichText = true,
+        Font = FONT_SERIF, TextSize = 30, TextColor3 = C.ink, TextXAlignment = Enum.TextXAlignment.Left,
     }, title)
     local close = new("TextButton", {
-        Position = UDim2.new(1, -74, 0, 6), Size = UDim2.new(0, 62, 0, 26),
-        BackgroundColor3 = C.item, BorderSizePixel = 0, Text = "Close",
-        Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = C.text,
+        Position = UDim2.new(1, -78, 0.5, -14), Size = UDim2.new(0, 66, 0, 28), Text = "Close",
+        Font = FONT_MED, TextSize = 12,
     }, title)
-    corner(close, 6)
+    control(close, "soft", 10)
 
     local dragging, dragStart, startPos
     local function isPointer(i)
@@ -1311,23 +1509,20 @@ local function buildUI()
 
     -- search
     searchBox = new("TextBox", {
-        Position = UDim2.new(0, 12, 0, 44), Size = UDim2.new(1, -130, 0, 30),
-        BackgroundColor3 = C.panel, BorderSizePixel = 0, Text = "",
-        PlaceholderText = "Search by name or tag", PlaceholderColor3 = C.muted,
-        Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = C.text,
-        ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left,
+        Position = UDim2.new(0, 12, 0, 62), Size = UDim2.new(1, -132, 0, 32), Text = "",
+        PlaceholderText = "Search by name or tag", PlaceholderColor3 = C.inkSoft,
+        Font = FONT, TextSize = 13, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left,
     }, main)
-    corner(searchBox, 8)
-    new("UIPadding", { PaddingLeft = UDim.new(0, 10) }, searchBox)
+    control(searchBox, "soft", 10)
+    new("UIPadding", { PaddingLeft = UDim.new(0, 12) }, searchBox)
     searchBox:GetPropertyChangedSignal("Text"):Connect(function() refreshList() end)
 
     -- tick / bỏ tick tất cả bài đang hiện
     local selAll = new("TextButton", {
-        Position = UDim2.new(1, -110, 0, 44), Size = UDim2.new(0, 98, 0, 30),
-        BackgroundColor3 = C.item, BorderSizePixel = 0, Text = "Select All",
-        Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = C.text,
+        Position = UDim2.new(1, -112, 0, 62), Size = UDim2.new(0, 100, 0, 32), Text = "Select All",
+        Font = FONT_MED, TextSize = 12,
     }, main)
-    corner(selAll, 8)
+    control(selAll, "soft", 10)
     selAll.Activated:Connect(function()
         local any, allChecked = false, true
         for _, s in ipairs(songs) do
@@ -1347,7 +1542,7 @@ local function buildUI()
 
     -- category chips
     catBar = new("ScrollingFrame", {
-        Position = UDim2.new(0, 12, 0, 80), Size = UDim2.new(1, -58, 0, 28),
+        Position = UDim2.new(0, 12, 0, 100), Size = UDim2.new(1, -56, 0, 28),
         BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 0,
         CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.X,
         ScrollingDirection = Enum.ScrollingDirection.X,
@@ -1359,20 +1554,17 @@ local function buildUI()
 
     -- nút + : tạo mục mới (gõ tên rồi Enter, hoặc bấm + lần nữa)
     local plus = new("TextButton", {
-        Position = UDim2.new(1, -40, 0, 80), Size = UDim2.new(0, 28, 0, 28),
-        BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "+",
-        Font = Enum.Font.GothamBold, TextSize = 18, TextColor3 = C.accentText,
+        Position = UDim2.new(1, -40, 0, 100), Size = UDim2.new(0, 28, 0, 28), Text = "+",
+        Font = FONT_BOLD, TextSize = 18,
     }, main)
-    corner(plus, 6)
+    control(plus, "rose", 10)
     local catInput = new("TextBox", {
-        Position = UDim2.new(0, 12, 0, 80), Size = UDim2.new(1, -58, 0, 28),
-        BackgroundColor3 = C.panel, BorderSizePixel = 0, Text = "", Visible = false,
-        PlaceholderText = "New category name, then Enter", PlaceholderColor3 = C.muted,
-        Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = C.text,
-        ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left,
+        Position = UDim2.new(0, 12, 0, 100), Size = UDim2.new(1, -56, 0, 28), Text = "", Visible = false,
+        PlaceholderText = "New category name, then Enter", PlaceholderColor3 = C.inkSoft,
+        Font = FONT, TextSize = 13, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left,
     }, main)
-    corner(catInput, 6)
-    new("UIPadding", { PaddingLeft = UDim.new(0, 10) }, catInput)
+    control(catInput, "soft", 10)
+    new("UIPadding", { PaddingLeft = UDim.new(0, 12) }, catInput)
 
     local function closeCatInput(commit)
         local name = (catInput.Text or ""):gsub("^%s+", ""):gsub("%s+$", ""):lower()
@@ -1404,54 +1596,48 @@ local function buildUI()
 
     -- song list
     listFrame = new("ScrollingFrame", {
-        Position = UDim2.new(0, 12, 0, 114), Size = UDim2.new(1, -24, 0, 196),
-        BackgroundColor3 = C.panel, BorderSizePixel = 0, ScrollBarThickness = 4,
-        ScrollBarImageColor3 = C.accent, CanvasSize = UDim2.new(0, 0, 0, 0),
+        Position = UDim2.new(0, 12, 0, 136), Size = UDim2.new(1, -24, 0, 188),
+        ScrollBarThickness = 3, ScrollBarImageColor3 = C.rose, CanvasSize = UDim2.new(0, 0, 0, 0),
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
     }, main)
-    corner(listFrame, 8)
+    glassFrame(listFrame, 0.36, 14)
     new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, listFrame)
     new("UIPadding", {
-        PaddingTop = UDim.new(0, 4), PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4),
-        PaddingBottom = UDim.new(0, 4),
+        PaddingTop = UDim.new(0, 6), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6),
+        PaddingBottom = UDim.new(0, 6),
     }, listFrame)
 
     -- bottom bar
-    local bar = new("Frame", {
-        Position = UDim2.new(0, 12, 0, 318), Size = UDim2.new(1, -24, 0, 90),
-        BackgroundTransparency = 1,
-    }, main)
+    local bar = new("Frame", { Position = UDim2.new(0, 12, 0, 332), Size = UDim2.new(1, -24, 0, 110) }, main)
+    glassFrame(bar, 0.36, 14)
     nameLabel = new("TextLabel", {
-        BackgroundTransparency = 1, Size = UDim2.new(1, -210, 0, 34),
-        Text = "No song selected", Font = Enum.Font.GothamMedium, TextSize = 14,
-        TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left,
+        BackgroundTransparency = 1, Position = UDim2.new(0, 16, 0, 8), Size = UDim2.new(1, -262, 0, 36),
+        Text = "No song selected", Font = FONT_SERIF, TextSize = 23,
+        TextColor3 = C.ink, TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, bar)
     new("TextLabel", {
-        BackgroundTransparency = 1, Position = UDim2.new(1, -204, 0, 0), Size = UDim2.new(0, 34, 0, 34),
-        Text = "BPM", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.muted,
+        BackgroundTransparency = 1, Position = UDim2.new(1, -230, 0, 8), Size = UDim2.new(0, 34, 0, 36),
+        Text = "BPM", Font = FONT_MED, TextSize = 11, TextColor3 = C.inkSoft,
     }, bar)
     bpmbox = new("TextBox", {
-        Position = UDim2.new(1, -168, 0, 2), Size = UDim2.new(0, 64, 0, 30),
-        BackgroundColor3 = C.panel, BorderSizePixel = 0, Text = "120",
-        Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = C.text, ClearTextOnFocus = false,
+        Position = UDim2.new(1, -192, 0, 11), Size = UDim2.new(0, 66, 0, 30), Text = "120",
+        Font = FONT_MED, TextSize = 13, ClearTextOnFocus = false,
     }, bar)
-    corner(bpmbox, 8)
+    control(bpmbox, "soft", 10)
     local play = new("TextButton", {
-        Position = UDim2.new(1, -96, 0, 2), Size = UDim2.new(0, 96, 0, 30),
-        BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "Play",
-        Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C.accentText,
+        Position = UDim2.new(1, -118, 0, 11), Size = UDim2.new(0, 104, 0, 30), Text = "Play",
+        Font = FONT_BOLD, TextSize = 14,
     }, bar)
-    corner(play, 8)
+    control(play, "rose", 10)
     play.Activated:Connect(playbuttonclicked)
 
     local function small(text, i, cb)
         local b = new("TextButton", {
-            Position = UDim2.new((i - 1) / 4, (i - 1) * 2, 0, 46), Size = UDim2.new(1 / 4, -6, 0, 30),
-            BackgroundColor3 = C.item, BorderSizePixel = 0, Text = text,
-            Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = C.text,
+            Position = UDim2.new(0, 14 + (i - 1) * 113, 0, 62), Size = UDim2.new(0, 109, 0, 34), Text = text,
+            Font = FONT_MED, TextSize = 12,
         }, bar)
-        corner(b, 8)
+        control(b, "soft", 10)
         b.Activated:Connect(cb)
         return b
     end
@@ -1513,12 +1699,10 @@ local function buildUI()
 
     -- Close: thu nhỏ thành 1 nút nhỏ (kéo được), bấm vào để mở lại
     local mini = new("TextButton", {
-        Name = "Mini", Position = main.Position, Size = UDim2.new(0, 96, 0, 32),
-        BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, Text = "AutoPiano",
-        Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C.accent,
+        Name = "Mini", Position = main.Position, Size = UDim2.new(0, 112, 0, 36), Visible = false,
+        Text = 'Auto<i>Piano</i>', RichText = true, Font = FONT_SERIF, TextSize = 22,
     }, gui)
-    corner(mini, 10)
-    new("UIStroke", { Color = C.accent, Thickness = 1, Transparency = 0.55 }, mini)
+    control(mini, "rose", 14)
     local miniDown, miniStart, miniPos, miniMoved = false, nil, nil, false
     mini.InputBegan:Connect(function(i)
         if isPointer(i) then miniDown, miniStart, miniPos, miniMoved = true, i.Position, mini.Position, false end
@@ -1544,6 +1728,14 @@ local function buildUI()
         main.Visible = false
         mini.Visible = true
     end)
+
+    -- ảnh nền: hiện dần khi tải xong
+    local function applyWallpaper(id)
+        if not (gui and wall.Parent) then return end
+        wall.Image = id
+        TweenService:Create(wall, TweenInfo.new(0.6), { ImageTransparency = 0 }):Play()
+    end
+    if _G.AP_WALLPAPER then applyWallpaper(_G.AP_WALLPAPER) else loadWallpaper(applyWallpaper) end
 end
 
 _G.__AP_UI_DESTROY = function()

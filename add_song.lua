@@ -20,10 +20,12 @@ end
 
 if _G.__AP_ADDSONG_GUI then pcall(function() _G.__AP_ADDSONG_GUI:Destroy() end) end
 
+-- Theme hồng + kính, giống giao diện chính (auto.lua)
 local C = {
-    bg = Color3.fromRGB(18, 18, 24), panel = Color3.fromRGB(28, 28, 38), item = Color3.fromRGB(36, 36, 50),
-    text = Color3.fromRGB(235, 235, 245), muted = Color3.fromRGB(150, 150, 172),
-    accent = Color3.fromRGB(255, 182, 208), accentText = Color3.fromRGB(40, 24, 32),
+    bg = Color3.fromRGB(244, 198, 211), panel = Color3.fromRGB(255, 255, 255), item = Color3.fromRGB(255, 255, 255),
+    text = Color3.fromRGB(67, 48, 58), muted = Color3.fromRGB(112, 90, 101),
+    accent = Color3.fromRGB(201, 112, 141), accentText = Color3.fromRGB(255, 255, 255),
+    pink100 = Color3.fromRGB(249, 221, 229), pink300 = Color3.fromRGB(236, 169, 189),
 }
 
 local function new(class, props, parent)
@@ -34,6 +36,21 @@ local function new(class, props, parent)
 end
 local function corner(o) new("UICorner", { CornerRadius = UDim.new(0, 8) }, o) end
 local function trim(s) return (tostring(s):gsub("^%s+", ""):gsub("%s+$", "")) end
+
+-- viền kính: sáng ở góc trên-trái, mờ dần ở giữa, hồng nhạt ở góc dưới-phải
+local function glowStroke(o, thickness)
+    local st = new("UIStroke", {
+        Color = Color3.fromRGB(255, 255, 255), Thickness = thickness or 1, Transparency = 0.2,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, o)
+    new("UIGradient", {
+        Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), C.pink300),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.45, 0.65), NumberSequenceKeypoint.new(1, 0.2),
+        }),
+        Rotation = 45,
+    }, st)
+end
 
 -- mục có sẵn: từ auto.lua (đã gồm mục tạo bằng nút +), "custom" luôn đứng đầu
 local categories = { "custom" }
@@ -54,12 +71,27 @@ local main = new("Frame", {
     Size = UDim2.new(0, 420, 0, 436), Position = UDim2.new(0.5, -210, 0.5, -218),
     BackgroundColor3 = C.bg, BorderSizePixel = 0, Active = true, Draggable = true,
 }, gui)
-corner(main)
-new("UIStroke", { Color = C.accent, Thickness = 1, Transparency = 0.55 }, main)
+corner(main, 18)
+new("UIGradient", { Color = ColorSequence.new(C.pink100, C.pink300), Rotation = 135 }, main)
+glowStroke(main, 1.5)
+-- ảnh nền (nếu auto.lua đã tải xong) + lớp sương để chữ rõ
+if _G.AP_WALLPAPER then
+    local wall = new("ImageLabel", {
+        Name = "Wallpaper", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1,
+        Image = _G.AP_WALLPAPER, ScaleType = Enum.ScaleType.Crop,
+    }, main)
+    corner(wall, 18)
+end
+local veil = new("Frame", {
+    Name = "Veil", Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+    BackgroundTransparency = 0.4, BorderSizePixel = 0,
+}, main)
+corner(veil, 18)
 
 new("TextLabel", {
-    BackgroundTransparency = 1, Position = UDim2.new(0, 14, 0, 8), Size = UDim2.new(1, -90, 0, 24),
-    Text = "Add Song", Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = C.accent,
+    BackgroundTransparency = 1, Position = UDim2.new(0, 16, 0, 6), Size = UDim2.new(1, -96, 0, 30),
+    Text = 'Add <font color="rgb(201,112,141)"><i>Song</i></font>', RichText = true,
+    Font = Enum.Font.Garamond, TextSize = 28, TextColor3 = C.text,
     TextXAlignment = Enum.TextXAlignment.Left,
 }, main)
 local closeBtn = new("TextButton", {
@@ -67,6 +99,9 @@ local closeBtn = new("TextButton", {
     BorderSizePixel = 0, Text = "Close", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = C.text,
 }, main)
 corner(closeBtn)
+closeBtn.BackgroundTransparency = 0.5
+closeBtn.AutoButtonColor = false
+glowStroke(closeBtn, 1)
 closeBtn.Activated:Connect(function() gui:Destroy() end)
 
 local function box(y, h, placeholder, multi)
@@ -81,6 +116,8 @@ local function box(y, h, placeholder, multi)
         ClipsDescendants = true,
     }, main)
     corner(b)
+    b.BackgroundTransparency = 0.45
+    glowStroke(b, 1)
     new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingTop = UDim.new(0, 6) }, b)
     return b
 end
@@ -109,6 +146,7 @@ local function paintChips()
     for name, chip in pairs(chips) do
         local on = selected[name] == true
         chip.BackgroundColor3 = on and C.accent or C.item
+        chip.BackgroundTransparency = on and 0.08 or 0.5
         chip.TextColor3 = on and C.accentText or C.text
     end
 end
@@ -119,6 +157,8 @@ for _, name in ipairs(categories) do
         Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = C.text,
     }, chipBar)
     corner(chip)
+    chip.AutoButtonColor = false
+    glowStroke(chip, 1)
     new("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, chip)
     chips[name] = chip
     chip.Activated:Connect(function()
@@ -171,6 +211,9 @@ local saveBtn = new("TextButton", {
     Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C.accentText,
 }, main)
 corner(saveBtn)
+saveBtn.BackgroundTransparency = 0.08
+saveBtn.AutoButtonColor = false
+glowStroke(saveBtn, 1)
 
 saveBtn.Activated:Connect(function()
     local name = trim((trim(nameBox.Text):gsub("[^%w%-_ ]", "")))
