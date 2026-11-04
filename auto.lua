@@ -363,10 +363,10 @@ local function buildPanel()
         BackgroundTransparency = 1,
         Position = UDim2.new(0, 12, 0, 8),
         Size = UDim2.new(0.5, 0, 0, 22),
-        Text = 'Auto<font color="rgb(201,112,141)"><i>Piano</i></font>',
+        Text = 'Melochi<font color="rgb(201,112,141)"><i>4</i></font>Luna',
         RichText = true,
         Font = Enum.Font.Garamond,
-        TextSize = 23,
+        TextSize = 21,
         TextColor3 = INK,
         TextXAlignment = Enum.TextXAlignment.Left,
     }, frame)
@@ -1481,7 +1481,7 @@ local function buildUI()
     glassFrame(title, 0.38, 14)
     new("TextLabel", {
         BackgroundTransparency = 1, Position = UDim2.new(0, 16, 0, 0), Size = UDim2.new(0.6, 0, 1, 0),
-        Text = 'Auto<font color="rgb(201,112,141)"><i>Piano</i></font>', RichText = true,
+        Text = 'Melochi<font color="rgb(201,112,141)"><i>4</i></font>Luna', RichText = true,
         Font = FONT_SERIF, TextSize = 30, TextColor3 = C.ink, TextXAlignment = Enum.TextXAlignment.Left,
     }, title)
     local close = new("TextButton", {
@@ -1698,11 +1698,28 @@ local function buildUI()
     end)
 
     -- Close: thu nhỏ thành 1 nút nhỏ (kéo được), bấm vào để mở lại
+    -- nút thu nhỏ: ảnh nền + chữ ML ở giữa (chữ nằm trong TextLabel con vì con vẽ đè lên chữ của cha)
     local mini = new("TextButton", {
-        Name = "Mini", Position = main.Position, Size = UDim2.new(0, 112, 0, 36), Visible = false,
-        Text = 'Auto<i>Piano</i>', RichText = true, Font = FONT_SERIF, TextSize = 22,
+        Name = "Mini", Position = main.Position, Size = UDim2.new(0, 60, 0, 60), Visible = false,
+        BackgroundColor3 = C.pink200, BorderSizePixel = 0, Text = "", AutoButtonColor = false,
     }, gui)
-    control(mini, "rose", 14)
+    corner(mini, 18)
+    new("UIGradient", { Color = ColorSequence.new(C.pink100, C.pink300), Rotation = 135 }, mini)
+    glowStroke(mini, 1.5)
+    local miniWall = new("ImageLabel", {
+        Name = "MiniWallpaper", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1,
+        Image = "", ImageTransparency = 1, ScaleType = Enum.ScaleType.Crop,
+    }, mini)
+    corner(miniWall, 18)
+    local miniVeil = new("Frame", {
+        Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.white, BackgroundTransparency = 0.72, BorderSizePixel = 0,
+    }, mini)
+    corner(miniVeil, 18)
+    new("TextLabel", {
+        Name = "ML", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, 0), Text = "ML",
+        Font = FONT_SERIF, TextSize = 30, TextColor3 = C.white,
+        TextStrokeColor3 = C.roseDeep, TextStrokeTransparency = 0.45,
+    }, mini)
     local miniDown, miniStart, miniPos, miniMoved = false, nil, nil, false
     mini.InputBegan:Connect(function(i)
         if isPointer(i) then miniDown, miniStart, miniPos, miniMoved = true, i.Position, mini.Position, false end
@@ -1733,7 +1750,9 @@ local function buildUI()
     local function applyWallpaper(id)
         if not (gui and wall.Parent) then return end
         wall.Image = id
+        miniWall.Image = id
         TweenService:Create(wall, TweenInfo.new(0.6), { ImageTransparency = 0 }):Play()
+        TweenService:Create(miniWall, TweenInfo.new(0.6), { ImageTransparency = 0 }):Play()
     end
     if _G.AP_WALLPAPER then applyWallpaper(_G.AP_WALLPAPER) else loadWallpaper(applyWallpaper) end
 end

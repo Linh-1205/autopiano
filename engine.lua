@@ -311,10 +311,10 @@ local function buildPanel()
         BackgroundTransparency = 1,
         Position = UDim2.new(0, 12, 0, 8),
         Size = UDim2.new(0.5, 0, 0, 22),
-        Text = 'Auto<font color="rgb(201,112,141)"><i>Piano</i></font>',
+        Text = 'Melochi<font color="rgb(201,112,141)"><i>4</i></font>Luna',
         RichText = true,
         Font = Enum.Font.Garamond,
-        TextSize = 23,
+        TextSize = 21,
         TextColor3 = INK,
         TextXAlignment = Enum.TextXAlignment.Left,
     }, frame)
