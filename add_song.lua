@@ -104,6 +104,25 @@ closeBtn.AutoButtonColor = false
 glowStroke(closeBtn, 1)
 closeBtn.Activated:Connect(function() gui:Destroy() end)
 
+-- chế độ: Single (từng bài) / Multiple (dán gói nhiều bài)
+local modeBtns = {}
+local function modeButton(label, x, w)
+    local b = new("TextButton", {
+        Position = UDim2.new(0, x, 0, 10), Size = UDim2.new(0, w, 0, 22), BackgroundColor3 = C.panel,
+        BorderSizePixel = 0, Text = label, Font = Enum.Font.GothamMedium, TextSize = 11, TextColor3 = C.text,
+        AutoButtonColor = false,
+    }, main)
+    corner(b)
+    glowStroke(b, 1)
+    modeBtns[label] = b
+    return b
+end
+modeButton("Single", 138, 56)
+modeButton("Multiple", 198, 66)
+
+-- khung chứa toàn bộ giao diện chế độ Single (ẩn khi chuyển sang Multiple)
+local singleFrame = new("Frame", { Name = "Single", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, 0) }, main)
+
 local function box(y, h, placeholder, multi)
     local b = new("TextBox", {
         Position = UDim2.new(0, 14, 0, y), Size = UDim2.new(1, -28, 0, h),
@@ -114,7 +133,7 @@ local function box(y, h, placeholder, multi)
         TextXAlignment = Enum.TextXAlignment.Left,
         TextYAlignment = multi and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center,
         ClipsDescendants = true,
-    }, main)
+    }, singleFrame)
     corner(b)
     b.BackgroundTransparency = 0.45
     glowStroke(b, 1)
@@ -129,13 +148,13 @@ new("TextLabel", {
     BackgroundTransparency = 1, Position = UDim2.new(0, 14, 0, 76), Size = UDim2.new(1, -28, 0, 16),
     Text = "Categories (tap to toggle, default: custom)", Font = Enum.Font.Gotham, TextSize = 11,
     TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left,
-}, main)
+}, singleFrame)
 local chipBar = new("ScrollingFrame", {
     Position = UDim2.new(0, 14, 0, 94), Size = UDim2.new(1, -28, 0, 28),
     BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 0,
     CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.X,
     ScrollingDirection = Enum.ScrollingDirection.X,
-}, main)
+}, singleFrame)
 new("UIListLayout", {
     FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder,
 }, chipBar)
@@ -176,7 +195,7 @@ local bpmLabel = new("TextLabel", {
     BackgroundTransparency = 1, Position = UDim2.new(0, 14, 0, 330), Size = UDim2.new(1, -28, 0, 18),
     Text = "BPM: paste a sheet to detect", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.muted,
     TextXAlignment = Enum.TextXAlignment.Left,
-}, main)
+}, singleFrame)
 
 local function readBpm(script)
     for line in tostring(script):gmatch("[^\r\n]+") do
@@ -209,7 +228,7 @@ local saveBtn = new("TextButton", {
     Position = UDim2.new(0, 14, 1, -48), Size = UDim2.new(1, -28, 0, 34),
     BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "Save",
     Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C.accentText,
-}, main)
+}, singleFrame)
 corner(saveBtn)
 saveBtn.BackgroundTransparency = 0.08
 saveBtn.AutoButtonColor = false
@@ -261,6 +280,246 @@ saveBtn.Activated:Connect(function()
             .. (b and (", " .. b .. " BPM") or "") .. ")")
         if _G.AP_RefreshSongs then pcall(_G.AP_RefreshSongs) end
         gui:Destroy()
+    else
+        warn("[AutoPiano] add_song: " .. tostring(err))
+        notify("Error", "Could not save song")
+    end
+end)
+
+----------------------------------------------------------------------
+-- Chế độ Multiple: dán gói nhiều bài (từ web "Merged pack" hoặc nút Share)
+--   Import all : thêm thẳng tất cả bài
+--   Edit       : tách thành cửa sổ nhiều tab (mỗi bài 1 tab), sửa rồi tự bấm Add từng bài
+----------------------------------------------------------------------
+local PackLib
+pcall(function()
+    if type(_G.__AP_PACK_SRC) == "string" then PackLib = loadstring(_G.__AP_PACK_SRC)() end
+end)
+
+local multiFrame = new("Frame", { Name = "Multi", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, 0), Visible = false }, main)
+local editFrame = new("Frame", { Name = "Edit", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, 0), Visible = false }, main)
+
+local function field(parent, x, y, w, h, placeholder, multi)
+    local b = new("TextBox", {
+        Position = UDim2.new(0, x, 0, y), Size = UDim2.new(w == 0 and 1 or 0, w == 0 and -28 or w, 0, h),
+        BackgroundColor3 = C.panel, BorderSizePixel = 0, Text = "",
+        PlaceholderText = placeholder, PlaceholderColor3 = C.muted,
+        Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = C.text,
+        ClearTextOnFocus = false, MultiLine = multi or false, TextWrapped = false,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = multi and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center,
+        ClipsDescendants = true,
+    }, parent)
+    corner(b)
+    b.BackgroundTransparency = 0.45
+    glowStroke(b, 1)
+    new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingTop = UDim.new(0, 6) }, b)
+    return b
+end
+local function actionButton(parent, text, x, w, primary)
+    local b = new("TextButton", {
+        Position = UDim2.new(x, x == 0 and 14 or 4, 1, -48), Size = UDim2.new(w, -18, 0, 34),
+        BackgroundColor3 = primary and C.accent or C.panel, BorderSizePixel = 0, Text = text,
+        Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = primary and C.accentText or C.text,
+        AutoButtonColor = false,
+    }, parent)
+    corner(b)
+    b.BackgroundTransparency = primary and 0.08 or 0.45
+    glowStroke(b, 1)
+    return b
+end
+
+-- ---- khung dán gói
+local packBox = field(multiFrame, 14, 40, 0, 296, "Paste the merged pack here (from the web converter, or from Share)", true)
+local packInfo = new("TextLabel", {
+    BackgroundTransparency = 1, Position = UDim2.new(0, 14, 0, 340), Size = UDim2.new(1, -28, 0, 18),
+    Text = "Paste a pack to detect songs", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.muted,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, multiFrame)
+local importAllBtn = actionButton(multiFrame, "Import all", 0, 0.5, true)
+local editBtn = actionButton(multiFrame, "Edit", 0.5, 0.5, false)
+
+local function parsedPack()
+    if not PackLib then notify("Error", "Pack library unavailable (reload auto.lua)") return nil end
+    local list, err = PackLib.parsePack(packBox.Text)
+    if not list then notify("Error", "Invalid pack: " .. tostring(err)) return nil end
+    return list
+end
+
+packBox:GetPropertyChangedSignal("Text"):Connect(function()
+    if #packBox.Text < 10 or not PackLib then
+        packInfo.Text, packInfo.TextColor3 = "Paste a pack to detect songs", C.muted
+        return
+    end
+    local list, err = PackLib.parsePack(packBox.Text)
+    if list then
+        packInfo.Text, packInfo.TextColor3 = #list .. " song(s) detected", C.accent
+    else
+        packInfo.Text, packInfo.TextColor3 = "Not a valid pack: " .. tostring(err), C.muted
+    end
+end)
+
+importAllBtn.Activated:Connect(function()
+    local list = parsedPack()
+    if not list then return end
+    local added, err = PackLib.install(list, DIR)
+    if not added then notify("Error", tostring(err)) return end
+    notify("Success", "Added " .. added .. " of " .. #list .. " song(s)")
+    if _G.AP_RefreshSongs then pcall(_G.AP_RefreshSongs) end
+    gui:Destroy()
+end)
+
+-- ---- cửa sổ sửa nhiều bài (mỗi tab 1 bài)
+local tabBar = new("ScrollingFrame", {
+    Position = UDim2.new(0, 14, 0, 40), Size = UDim2.new(1, -28, 0, 28),
+    BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 0,
+    CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.X,
+    ScrollingDirection = Enum.ScrollingDirection.X,
+}, editFrame)
+new("UIListLayout", {
+    FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder,
+}, tabBar)
+local eName = field(editFrame, 14, 74, 0, 30, "Name of this song")
+local eCats = field(editFrame, 14, 108, 0, 30, "Categories (comma separated, empty = custom)")
+local eSheet = field(editFrame, 14, 142, 0, 190, "Sheet script", true)
+local eInfo = new("TextLabel", {
+    BackgroundTransparency = 1, Position = UDim2.new(0, 14, 0, 336), Size = UDim2.new(1, -28, 0, 18),
+    Text = "", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left,
+}, editFrame)
+local eAdd = actionButton(editFrame, "Add this song", 0, 0.6, true)
+local eBack = actionButton(editFrame, "Back", 0.6, 0.4, false)
+
+local edits, active, tabButtons = {}, 0, {}
+
+local function paintTabs()
+    for i, b in ipairs(tabButtons) do
+        local e = edits[i]
+        local on = (i == active)
+        b.BackgroundColor3 = on and C.accent or C.item
+        b.BackgroundTransparency = on and 0.08 or 0.5
+        b.TextColor3 = on and C.accentText or C.text
+        local label = trim(e.name) ~= "" and trim(e.name) or "(no name)"
+        if #label > 14 then label = label:sub(1, 12) .. ".." end
+        b.Text = (e.added and "+ " or "") .. label
+    end
+end
+
+local function stash()
+    local e = edits[active]
+    if e and not e.added then
+        e.name, e.cats, e.text = eName.Text, eCats.Text, eSheet.Text
+    end
+end
+
+local function showTab(i)
+    stash()
+    active = i
+    local e = edits[i]
+    eName.Text, eCats.Text, eSheet.Text = e.name, e.cats, e.text
+    local b = readBpm(e.text)
+    eInfo.Text = e.added and "Already added" or (b and ("BPM: " .. b .. " (read from sheet)") or "BPM: not found, default 120")
+    eInfo.TextColor3 = e.added and C.accent or C.muted
+    eAdd.Text = e.added and "Added" or "Add this song"
+    paintTabs()
+end
+
+eSheet:GetPropertyChangedSignal("Text"):Connect(function()
+    local b = readBpm(eSheet.Text)
+    if edits[active] and not edits[active].added then
+        eInfo.Text = b and ("BPM: " .. b .. " (read from sheet)") or "BPM: not found, default 120"
+    end
+end)
+eName:GetPropertyChangedSignal("Text"):Connect(function()
+    local e = edits[active]
+    if e and not e.added then e.name = eName.Text; paintTabs() end
+end)
+
+local function setMode(mode)
+    singleFrame.Visible = (mode == "Single")
+    multiFrame.Visible = (mode == "Multiple")
+    editFrame.Visible = (mode == "Edit")
+    for label, b in pairs(modeBtns) do
+        local on = (label == mode) or (mode == "Edit" and label == "Multiple")
+        b.BackgroundColor3 = on and C.accent or C.panel
+        b.BackgroundTransparency = on and 0.08 or 0.5
+        b.TextColor3 = on and C.accentText or C.text
+    end
+end
+modeBtns["Single"].Activated:Connect(function() setMode("Single") end)
+modeBtns["Multiple"].Activated:Connect(function()
+    setMode(#edits > 0 and editFrame.Visible and "Edit" or "Multiple")
+end)
+setMode("Single")
+
+editBtn.Activated:Connect(function()
+    local list = parsedPack()
+    if not list then return end
+    for _, b in ipairs(tabButtons) do b:Destroy() end
+    tabButtons, edits, active = {}, {}, 0
+    for i, s in ipairs(list) do
+        edits[i] = {
+            name = s.name, cats = table.concat(s.cats or {}, ", "), added = false,
+            text = "--BPM:" .. tostring(s.bpm) .. "\n" .. table.concat(s.sheet, "\n"),
+        }
+        local b = new("TextButton", {
+            Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = C.item,
+            BorderSizePixel = 0, Text = s.name, Font = Enum.Font.GothamMedium, TextSize = 12,
+            TextColor3 = C.text, AutoButtonColor = false, LayoutOrder = i,
+        }, tabBar)
+        corner(b)
+        glowStroke(b, 1)
+        new("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, b)
+        tabButtons[i] = b
+        b.Activated:Connect(function() showTab(i) end)
+    end
+    setMode("Edit")
+    showTab(1)
+end)
+
+eBack.Activated:Connect(function()
+    stash()
+    setMode("Multiple")
+end)
+
+-- thêm thủ công đúng bài đang mở (nội dung theo những gì người dùng đã sửa)
+eAdd.Activated:Connect(function()
+    local e = edits[active]
+    if not e or e.added then return end
+    stash()
+    local name = trim((trim(e.name):gsub("[^%w%-_ ]", "")))
+    local script = e.text
+    if name == "" then notify("Error", "Enter a song name") return end
+    if #script <= 10 then notify("Error", "The sheet is empty") return end
+
+    local cats, seen = {}, {}
+    for raw in trim(e.cats):gmatch("[^,]+") do
+        local c = trim((raw:gsub("[^%w%-_ ]", ""))):lower()
+        if c ~= "" and not seen[c] then seen[c] = true; cats[#cats + 1] = c end
+    end
+    if #cats == 1 and cats[1] == "custom" then cats = {} end
+
+    local okSave, err = pcall(function()
+        if not isfolder(DIR) then makefolder(DIR) end
+        local body = script
+        if #cats > 0 and not body:match("^%-%-CAT:") then
+            body = "--CAT:" .. table.concat(cats, ",") .. "\n" .. body
+        end
+        writefile(DIR .. "/" .. name .. ".txt", body)
+        local catPath = DIR .. "/_categories.txt"
+        local lines = {}
+        if type(isfile) == "function" and isfile(catPath) then
+            for line in tostring(readfile(catPath)):gmatch("[^\r\n]+") do
+                if line:match("^(.-)|") ~= name then lines[#lines + 1] = line end
+            end
+        end
+        if #cats > 0 then lines[#lines + 1] = name .. "|" .. table.concat(cats, ",") end
+        writefile(catPath, table.concat(lines, "\n"))
+    end)
+    if okSave then
+        e.added = true
+        notify("Success", "Saved: " .. name)
+        if _G.AP_RefreshSongs then pcall(_G.AP_RefreshSongs) end
+        showTab(active)
     else
         warn("[AutoPiano] add_song: " .. tostring(err))
         notify("Error", "Could not save song")
