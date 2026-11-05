@@ -40,7 +40,13 @@ local function num(s)
 end
 
 local function sanitizeName(name)
-    return trim(tostring(name or ""):gsub("[^%w%-_ ]", "")):sub(1, 60)
+    local s = trim(tostring(name or ""):gsub("[^%w%-_ \128-\255]", "")) -- giữ chữ có dấu (UTF-8)
+    s = s:sub(1, 60)
+    if utf8 and utf8.len then
+        local n = 0
+        while #s > 0 and not utf8.len(s) and n < 4 do s = s:sub(1, -2); n = n + 1 end -- cắt dở 1 ký tự
+    end
+    return trim(s)
 end
 
 local function sanitizeCats(str)
