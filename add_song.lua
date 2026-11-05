@@ -380,8 +380,17 @@ new("UIListLayout", {
     FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder,
 }, tabBar)
 local eName = field(editFrame, 14, 74, 0, 30, "Name of this song")
-local eCats = field(editFrame, 14, 108, 0, 30, "Categories (comma separated, empty = custom)")
-local eSheet = field(editFrame, 14, 142, 0, 190, "Sheet script", true)
+local eChipBar = new("ScrollingFrame", {
+    Position = UDim2.new(0, 14, 0, 110), Size = UDim2.new(1, -28, 0, 28),
+    BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 0,
+    CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.X,
+    ScrollingDirection = Enum.ScrollingDirection.X,
+}, editFrame)
+new("UIListLayout", {
+    FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder,
+}, eChipBar)
+local eCats = field(editFrame, 14, 142, 0, 30, "Add new categories too (comma separated, optional)")
+local eSheet = field(editFrame, 14, 176, 0, 156, "Sheet script", true)
 local eInfo = new("TextLabel", {
     BackgroundTransparency = 1, Position = UDim2.new(0, 14, 0, 336), Size = UDim2.new(1, -28, 0, 18),
     Text = "", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left,
@@ -390,6 +399,36 @@ local eAdd = actionButton(editFrame, "Add this song", 0, 0.6, true)
 local eBack = actionButton(editFrame, "Back", 0.6, 0.4, false)
 
 local edits, active, tabButtons = {}, 0, {}
+
+-- chip mục (mỗi bài có tập chọn riêng e.sel); không chọn gì = custom (mặc định)
+local eChips = {}
+local function paintEditChips()
+    local e = edits[active]
+    for name, chip in pairs(eChips) do
+        local on = e ~= nil and e.sel[name] == true
+        chip.BackgroundColor3 = on and C.accent or C.item
+        chip.BackgroundTransparency = on and 0.08 or 0.5
+        chip.TextColor3 = on and C.accentText or C.text
+    end
+end
+for _, name in ipairs(categories) do
+    local chip = new("TextButton", {
+        Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X,
+        BackgroundColor3 = C.item, BorderSizePixel = 0, Text = name,
+        Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = C.text, AutoButtonColor = false,
+    }, eChipBar)
+    corner(chip)
+    glowStroke(chip, 1)
+    new("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, chip)
+    eChips[name] = chip
+    chip.Activated:Connect(function()
+        local e = edits[active]
+        if e and not e.added then
+            e.sel[name] = not e.sel[name] or nil
+            paintEditChips()
+        end
+    end)
+end
 
 local function paintTabs()
     for i, b in ipairs(tabButtons) do
@@ -421,6 +460,7 @@ local function showTab(i)
     eInfo.TextColor3 = e.added and C.accent or C.muted
     eAdd.Text = e.added and "Added" or "Add this song"
     paintTabs()
+    paintEditChips()
 end
 
 eSheet:GetPropertyChangedSignal("Text"):Connect(function()
@@ -457,8 +497,12 @@ editBtn.Activated:Connect(function()
     for _, b in ipairs(tabButtons) do b:Destroy() end
     tabButtons, edits, active = {}, {}, 0
     for i, s in ipairs(list) do
+        local sel, extra = {}, {}
+        for _, c in ipairs(s.cats or {}) do
+            if eChips[c] then sel[c] = true else extra[#extra + 1] = c end
+        end
         edits[i] = {
-            name = s.name, cats = table.concat(s.cats or {}, ", "), added = false,
+            name = s.name, sel = sel, cats = table.concat(extra, ", "), added = false,
             text = "--BPM:" .. tostring(s.bpm) .. "\n" .. table.concat(s.sheet, "\n"),
         }
         local b = new("TextButton", {
@@ -492,6 +536,9 @@ eAdd.Activated:Connect(function()
     if #script <= 10 then notify("Error", "The sheet is empty") return end
 
     local cats, seen = {}, {}
+    for _, c in ipairs(categories) do
+        if e.sel[c] and not seen[c] then seen[c] = true; cats[#cats + 1] = c end
+    end
     for raw in trim(e.cats):gmatch("[^,]+") do
         local c = trim((raw:gsub("[^%w%-_ ]", ""))):lower()
         if c ~= "" and not seen[c] then seen[c] = true; cats[#cats + 1] = c end
