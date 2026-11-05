@@ -36,6 +36,15 @@ local function new(class, props, parent)
 end
 local function corner(o) new("UICorner", { CornerRadius = UDim.new(0, 8) }, o) end
 local function trim(s) return (tostring(s):gsub("^%s+", ""):gsub("%s+$", "")) end
+local function cleanSongName(name)
+    local s = trim(tostring(name or ""):gsub("[^%w%-_ \128-\255]", "")) -- giữ chữ có dấu (UTF-8)
+    s = s:sub(1, 60)
+    if utf8 and utf8.len then
+        local n = 0
+        while #s > 0 and not utf8.len(s) and n < 4 do s = s:sub(1, -2); n = n + 1 end -- cắt dở 1 ký tự
+    end
+    return trim(s)
+end
 
 -- viền kính: sáng ở góc trên-trái, mờ dần ở giữa, hồng nhạt ở góc dưới-phải
 local function glowStroke(o, thickness)
@@ -235,7 +244,7 @@ saveBtn.AutoButtonColor = false
 glowStroke(saveBtn, 1)
 
 saveBtn.Activated:Connect(function()
-    local name = trim((trim(nameBox.Text):gsub("[^%w%-_ ]", "")))
+    local name = cleanSongName(nameBox.Text)
     local script = scriptBox.Text
     if name == "" then notify("Error", "Enter a song name") return end
     if #script <= 10 then notify("Error", "Paste the sheet script first") return end
@@ -530,7 +539,7 @@ eAdd.Activated:Connect(function()
     local e = edits[active]
     if not e or e.added then return end
     stash()
-    local name = trim((trim(e.name):gsub("[^%w%-_ ]", "")))
+    local name = cleanSongName(e.name)
     local script = e.text
     if name == "" then notify("Error", "Enter a song name") return end
     if #script <= 10 then notify("Error", "The sheet is empty") return end
